@@ -7,7 +7,8 @@ import ControlsRow from "./components/ControlsRow";
 import ExportDialog from "./components/ExportDialog";
 import ReachMergePanel from "./components/ReachMergePanel";
 import LandmarksPanel from "./components/LandmarksPanel";
-import { api } from "./api/client";
+import ProfileMappingDialog from "./components/ProfileMappingDialog";
+import { api, type ProfileMeta } from "./api/client";
 
 export type Session = {
   session_id: string;
@@ -21,6 +22,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>([]);
   const [reachIdx, setReachIdx] = useState(0);
+  const [profileMeta, setProfileMeta] = useState<ProfileMeta[]>([]);
   const [profileData, setProfileData] = useState<any>(null);
   const [geojson, setGeojson] = useState<any>(null);
   const [selectedRs, setSelectedRs] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export default function App() {
   const [defaultPath, setDefaultPath] = useState("");
   const [fisDefaults, setFisDefaults] = useState<Record<string, any>>({});
   const [exportOpen, setExportOpen] = useState(false);
+  const [profileMappingOpen, setProfileMappingOpen] = useState(false);
   const [useNodeNames, setUseNodeNames] = useState(false);
   const [workingByRs, setWorkingByRs] = useState<Record<string, number>>({});
   const [landmarks, setLandmarks] = useState<any[]>([]);
@@ -52,6 +55,7 @@ export default function App() {
       }
       setWorkingByRs(map);
       setLandmarks(db.landmarks || []);
+      setProfileMeta((db.profiles as ProfileMeta[]) || []);
     } catch {
       /* ignore */
     }
@@ -218,6 +222,24 @@ export default function App() {
     }
   }
 
+  async function saveProfileMapping(nextProfiles: ProfileMeta[]) {
+    if (!session) return;
+    setBusy(true);
+    try {
+      await api.putProfiles(session.session_id, nextProfiles.map((p) => ({
+        name: p.name,
+        frequency: p.frequency,
+        backwater_elev: p.backwater_elev,
+        backwater_text: p.backwater_text,
+      })));
+      await refreshDbMeta(session.session_id);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function applyMerge() {
     if (!session) return;
     setBusy(true);
@@ -261,6 +283,7 @@ export default function App() {
             reachIdx={reachIdx}
             onReachChange={changeReach}
             onOpenExport={() => setExportOpen(true)}
+            onOpenProfileMapping={() => setProfileMappingOpen(true)}
             onFixDrawdowns={onFixDrawdowns}
             onAutoLetter={onAutoLetter}
             onRecalcCumdist={onRecalcCumdist}
@@ -337,6 +360,13 @@ export default function App() {
               )}
             </div>
           </div>
+          <ProfileMappingDialog
+            open={profileMappingOpen}
+            sessionId={session.session_id}
+            profiles={profileMeta}
+            onClose={() => setProfileMappingOpen(false)}
+            onSave={saveProfileMapping}
+          />
           <ExportDialog
             open={exportOpen}
             onClose={() => setExportOpen(false)}

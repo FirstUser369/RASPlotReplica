@@ -1,5 +1,18 @@
 // API client for RAS-Plot Replica backend.
 
+export type ProfileMeta = {
+  name: string;
+  frequency: string;
+  backwater_elev: number | null;
+  backwater_text: string;
+  selected?: boolean;
+  color?: string;
+  linetype?: string;
+  lineweight?: number;
+  legend_text?: string;
+  layer?: string;
+};
+
 export type OpenResponse = {
   session_id: string;
   flow_type: string;
