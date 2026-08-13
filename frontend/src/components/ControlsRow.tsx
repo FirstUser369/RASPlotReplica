@@ -7,6 +7,7 @@ type Props = {
   onReachChange: (idx: number) => void;
   onOpenExport: () => void;
   onOpenProfileMapping: () => void;
+  onOpenEditProfileTable: () => void;
   onFixDrawdowns: () => void;
   onAutoLetter: () => void;
   onRecalcCumdist: () => void;
@@ -23,6 +24,7 @@ export default function ControlsRow({
   onReachChange,
   onOpenExport,
   onOpenProfileMapping,
+  onOpenEditProfileTable,
   onFixDrawdowns,
   onAutoLetter,
   onRecalcCumdist,
@@ -86,6 +88,7 @@ export default function ControlsRow({
 
       <div className="tools">
         <button type="button" className="tool" onClick={onOpenProfileMapping} title="Review and assign FEMA frequency/use for each extracted profile">Profile Mapping</button>
+        <button type="button" className="tool" onClick={onOpenEditProfileTable} title="Open a full-width engineering profile table">Edit Profile Table</button>
         <button type="button" className="tool" onClick={onAutoLetter} title="Auto-letter cross sections">Letters</button>
         <button type="button" className="tool" onClick={onFixDrawdowns} title="Fix drawdowns (all profiles)">Drawdowns</button>
         <button type="button" className="tool" onClick={onRecalcCumdist} title="Recalculate CUMDIST">CUMDIST</button>

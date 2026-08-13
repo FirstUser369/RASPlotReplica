@@ -32,6 +32,7 @@ export default function App() {
   const [fisDefaults, setFisDefaults] = useState<Record<string, any>>({});
   const [exportOpen, setExportOpen] = useState(false);
   const [profileMappingOpen, setProfileMappingOpen] = useState(false);
+  const [profileTableOpen, setProfileTableOpen] = useState(false);
   const [useNodeNames, setUseNodeNames] = useState(false);
   const [workingByRs, setWorkingByRs] = useState<Record<string, number>>({});
   const [landmarks, setLandmarks] = useState<any[]>([]);
@@ -45,6 +46,14 @@ export default function App() {
       if (s.default_fis) setFisDefaults(s.default_fis);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = profileTableOpen ? "hidden" : previousOverflow;
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [profileTableOpen]);
 
   async function refreshDbMeta(sid: string) {
     try {
@@ -240,6 +249,46 @@ export default function App() {
     }
   }
 
+  async function editWorkingRowValue(
+    rs: string,
+    field: "length_chnl" | "minchel" | "low_chord" | "high_chord",
+    value: number | null,
+  ) {
+    if (!session) return;
+    const id = workingByRs[rs];
+    if (id == null) {
+      setError(`No working row found for RS ${rs}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.patchWorking(session.session_id, [{ id, [field]: value }]);
+      await reloadAfterDb();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function editProfileValue(rs: string, profileName: string, value: number | null) {
+    if (!session) return;
+    const id = workingByRs[rs];
+    if (id == null) {
+      setError(`No working row found for RS ${rs}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.patchWorking(session.session_id, [{ id, profiles: { [profileName]: value } }]);
+      await reloadAfterDb();
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function applyMerge() {
     if (!session) return;
     setBusy(true);
@@ -284,6 +333,7 @@ export default function App() {
             onReachChange={changeReach}
             onOpenExport={() => setExportOpen(true)}
             onOpenProfileMapping={() => setProfileMappingOpen(true)}
+            onOpenEditProfileTable={() => setProfileTableOpen(true)}
             onFixDrawdowns={onFixDrawdowns}
             onAutoLetter={onAutoLetter}
             onRecalcCumdist={onRecalcCumdist}
@@ -339,6 +389,10 @@ export default function App() {
                   onSelectRs={setSelectedRs}
                   onEditLetter={editLetter}
                   onEditLabelText={editLabelText}
+                  onEditWorkingRow={editWorkingRowValue}
+                  onEditProfileValue={editProfileValue}
+                  workingByRs={workingByRs}
+                  mode="compact"
                 />
               )}
               {sideTab === "landmarks" && (
@@ -360,6 +414,52 @@ export default function App() {
               )}
             </div>
           </div>
+          {profileTableOpen && profileData && (
+            <div className="modal-backdrop" onClick={() => setProfileTableOpen(false)}>
+              <div className="edit-table-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="edit-table-header">
+                  <div>
+                    <h3>Edit Profile Table</h3>
+                  </div>
+                  <button type="button" className="close-button" onClick={() => setProfileTableOpen(false)} aria-label="Close edit profile table">
+                    ×
+                  </button>
+                </div>
+
+                <div className="edit-table-toolbar">
+                  <div className="edit-table-toolbar__row">
+                    <span className="edit-table-meta">
+                      {session.reaches[reachIdx]?.river} \ {session.reaches[reachIdx]?.reach} · {selectedProfiles.join(", ")}
+                    </span>
+                  </div>
+                  <div className="edit-table-actions">
+                    <button type="button" onClick={onFixDrawdowns}>Fix Drawdowns</button>
+                    <button type="button" onClick={onAutoLetter}>Auto Letter</button>
+                    <button type="button" onClick={onRecalcCumdist}>Recalculate CUMDIST</button>
+                  </div>
+                </div>
+
+                <div className="edit-table-body">
+                  <ProfileTable
+                    profile={profileData}
+                    selectedRs={selectedRs}
+                    onSelectRs={setSelectedRs}
+                    onEditLetter={editLetter}
+                    onEditLabelText={editLabelText}
+                    onEditWorkingRow={editWorkingRowValue}
+                    onEditProfileValue={editProfileValue}
+                    workingByRs={workingByRs}
+                    mode="workspace"
+                  />
+                </div>
+
+                <div className="edit-table-footer">
+                  <span>{selectedRs ? `Selected RS: ${selectedRs}` : "No RS selected"}</span>
+                  <button type="button" onClick={() => setProfileTableOpen(false)}>Done</button>
+                </div>
+              </div>
+            </div>
+          )}
           <ProfileMappingDialog
             open={profileMappingOpen}
             sessionId={session.session_id}
