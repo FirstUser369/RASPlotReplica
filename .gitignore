@@ -1,0 +1,69 @@
+# ==============================
+# Python
+# ==============================
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# ==============================
+# Frontend / Node
+# ==============================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ==============================
+# Local settings
+# ==============================
+settings.local.json
+.env
+.env.*
+!.env.example
+
+# ==============================
+# IDE / OS
+# ==============================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ==============================
+# Logs / temporary files
+# ==============================
+*.log
+*.tmp
+*.temp
+
+# ==============================
+# Python build artifacts
+# ==============================
+build/
+dist/
+*.egg-info/
+
+# ==============================
+# Test / coverage artifacts
+# ==============================
+.coverage
+htmlcov/
+coverage/
+
+# ==============================
+# Local application artifacts
+# ==============================
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.old
+*~
