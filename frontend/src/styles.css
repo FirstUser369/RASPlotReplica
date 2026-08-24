@@ -147,6 +147,9 @@ button.tool, .tool-check { font-size: 11px; padding: 4px 8px; border-radius: 4px
 .tool-check { display: inline-flex; align-items: center; gap: 4px; }
 .controls-row > button { margin-left: auto; padding: 6px 14px; border-radius: 4px; background: #196bd6; color: white; border: 0; cursor: pointer; font-size: 12px; }
 
+.range-controls { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; flex: 0 0 auto; margin-left: 8px; }
+.range-controls input { box-sizing: border-box; }
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

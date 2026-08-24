@@ -7,6 +7,8 @@ type Props = {
   onSelectRs: (rs: string) => void;
   landmarks?: Array<{ distance: number; elevation: number; text: string; orientation?: string }>;
   onAddLandmark?: (distance: number, elevation: number) => void;
+  startStation?: number | null;
+  endStation?: number | null;
 };
 
 const PROFILE_COLORS = [
@@ -37,6 +39,8 @@ function nearestCumdist(xs: GetProfileResponse["cross_sections"], rs: string): n
 
 export default function ProfileChart({
   profile, selectedRs, onSelectRs, landmarks = [], onAddLandmark,
+  startStation = null,
+  endStation = null,
 }: Props) {
   const xs = profile.cross_sections;
   const cumdist = xs.map((c) => c.cumdist);
@@ -63,6 +67,7 @@ export default function ProfileChart({
     });
   });
 
+  // channel invert trace filtered by visible domain
   traces.push({
     x: cumdist,
     y: minchel,
@@ -95,6 +100,7 @@ export default function ProfileChart({
   for (const s of profile.structures) {
     const x = s.cumdist != null ? s.cumdist : nearestCumdist(xs, s.rs);
     if (x == null) continue;
+    // keep structures; they will be outside view when axis range set
 
     const isBridgeLike = /bridge|culvert/i.test(s.type || "");
     const yHigh = s.high_chord;
@@ -149,8 +155,10 @@ export default function ProfileChart({
     });
   }
 
-  // Landmarks from session DB
+  // Landmarks from session DB (filtered)
   for (const lm of landmarks) {
+    const d = Number(lm.distance);
+    if ((startStation != null && d < startStation) || (endStation != null && d > endStation)) continue;
     annotations.push({
       x: lm.distance,
       y: lm.elevation,
@@ -166,15 +174,18 @@ export default function ProfileChart({
   if (selectedRs) {
     const sel = xs.find((c) => c.rs === selectedRs);
     if (sel) {
-      shapes.push({
-        type: "line",
-        x0: sel.cumdist,
-        x1: sel.cumdist,
-        y0: 0,
-        y1: 1,
-        yref: "paper",
-        line: { color: "#c1121f", width: 1, dash: "dot" },
-      });
+      const d = Number(sel.cumdist);
+      if ((startStation == null || d >= startStation) && (endStation == null || d <= endStation)) {
+        shapes.push({
+          type: "line",
+          x0: sel.cumdist,
+          x1: sel.cumdist,
+          y0: 0,
+          y1: 1,
+          yref: "paper",
+          line: { color: "#c1121f", width: 1, dash: "dot" },
+        });
+      }
     }
   }
 
@@ -186,6 +197,8 @@ export default function ProfileChart({
     xaxis: {
       title: "Cumulative Distance (ft)",
       gridcolor: "#eee",
+      range: [(startStation ?? Math.min(...cumdist.filter((d) => Number.isFinite(d)))), (endStation ?? Math.max(...cumdist.filter((d) => Number.isFinite(d))))],
+      autorange: false,
     },
     yaxis: { title: "Elevation (NAVD88, ft)", gridcolor: "#eee" },
     legend: { orientation: "h", y: -0.2 },

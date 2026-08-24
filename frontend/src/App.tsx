@@ -25,6 +25,10 @@ export default function App() {
   const [reachIdx, setReachIdx] = useState(0);
   const [profileMeta, setProfileMeta] = useState<ProfileMeta[]>([]);
   const [profileData, setProfileData] = useState<any>(null);
+  const [startStation, setStartStation] = useState<number | null>(null);
+  const [endStation, setEndStation] = useState<number | null>(null);
+  const [availMinStation, setAvailMinStation] = useState<number | null>(null);
+  const [availMaxStation, setAvailMaxStation] = useState<number | null>(null);
   const [geojson, setGeojson] = useState<any>(null);
   const [selectedRs, setSelectedRs] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,9 +77,40 @@ export default function App() {
     }
   }
 
-  async function loadProfile(sid: string, rIdx: number, profiles: string[]) {
+  async function loadProfile(sid: string, rIdx: number, profiles: string[], resetRange = false) {
     const p = await api.getProfile(sid, rIdx, profiles);
     setProfileData(p);
+
+    // determine available cumulative distance extents for this reach
+    try {
+      const cds = (p.cross_sections || []).map((c: any) => Number(c.cumdist)).filter((v: number) => Number.isFinite(v));
+      const min = cds.length ? Math.min(...cds) : 0;
+      const max = cds.length ? Math.max(...cds) : 0;
+      setAvailMinStation(min);
+      setAvailMaxStation(max);
+
+      if (resetRange || startStation == null || endStation == null) {
+        setStartStation(min);
+        setEndStation(max);
+      } else {
+        // clamp existing values to new extents but preserve if valid
+        setStartStation((cur) => {
+          if (cur == null) return min;
+          if (cur < min) return min;
+          if (cur >= max) return min;
+          return cur;
+        });
+        setEndStation((cur) => {
+          if (cur == null) return max;
+          if (cur > max) return max;
+          if (cur <= min) return max;
+          return cur;
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+
     await refreshDbMeta(sid);
   }
 
@@ -106,7 +141,7 @@ export default function App() {
     if (!session || !names.length) return;
     setSelectedProfiles(names);
     try {
-      await loadProfile(session.session_id, reachIdx, names);
+      await loadProfile(session.session_id, reachIdx, names, false);
     } catch (e: any) {
       setError(String(e.message ?? e));
     }
@@ -118,12 +153,52 @@ export default function App() {
     setBusy(true);
     try {
       await api.selectReach(session.session_id, { reach_idx: idx });
-      await loadProfile(session.session_id, idx, selectedProfiles);
+      await loadProfile(session.session_id, idx, selectedProfiles, true);
     } catch (e: any) {
       setError(String(e.message ?? e));
     } finally {
       setBusy(false);
     }
+  }
+
+  function commitStartStation(raw: number | string) {
+    if (availMinStation == null || availMaxStation == null) return;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) {
+      setError("Invalid start station");
+      return;
+    }
+    if (v < availMinStation) {
+      setStartStation(availMinStation);
+      setError(null);
+      return;
+    }
+    if (endStation != null && v >= endStation) {
+      setError("Start must be less than End station");
+      return;
+    }
+    setStartStation(v);
+    setError(null);
+  }
+
+  function commitEndStation(raw: number | string) {
+    if (availMinStation == null || availMaxStation == null) return;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) {
+      setError("Invalid end station");
+      return;
+    }
+    if (v > availMaxStation) {
+      setEndStation(availMaxStation);
+      setError(null);
+      return;
+    }
+    if (startStation != null && v <= startStation) {
+      setError("End must be greater than Start station");
+      return;
+    }
+    setEndStation(v);
+    setError(null);
   }
 
   async function reloadAfterDb() {
@@ -343,6 +418,12 @@ export default function App() {
             onRecalcCumdist={onRecalcCumdist}
             onNodeNames={onNodeNames}
             useNodeNames={useNodeNames}
+            startStation={startStation}
+            endStation={endStation}
+            onStartChange={(v) => setStartStation(Number(v))}
+            onEndChange={(v) => setEndStation(Number(v))}
+            onStartCommit={commitStartStation}
+            onEndCommit={commitEndStation}
           />
           <div className="main">
             <div className="main__chart">
@@ -353,6 +434,8 @@ export default function App() {
                   onSelectRs={setSelectedRs}
                   landmarks={landmarks}
                   onAddLandmark={addLandmark}
+                    startStation={startStation}
+                    endStation={endStation}
                 />
               )}
               <div className="chart-hint">Shift+click a point to add a landmark</div>

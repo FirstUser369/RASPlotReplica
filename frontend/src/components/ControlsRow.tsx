@@ -14,6 +14,12 @@ type Props = {
   onRecalcCumdist: () => void;
   onNodeNames: (on: boolean) => void;
   useNodeNames: boolean;
+  startStation?: number | null;
+  endStation?: number | null;
+  onStartChange?: (v: number | string) => void;
+  onEndChange?: (v: number | string) => void;
+  onStartCommit?: (v: number | string) => void;
+  onEndCommit?: (v: number | string) => void;
 };
 
 export default function ControlsRow({
@@ -32,6 +38,12 @@ export default function ControlsRow({
   onRecalcCumdist,
   onNodeNames,
   useNodeNames,
+  startStation,
+  endStation,
+  onStartChange,
+  onEndChange,
+  onStartCommit,
+  onEndCommit,
 }: Props) {
   const reaches = session?.reaches ?? [];
   const names: string[] = profileNames.length
@@ -99,6 +111,27 @@ export default function ControlsRow({
           <input type="checkbox" checked={useNodeNames} onChange={(e) => onNodeNames(e.target.checked)} />
           Node names
         </label>
+      </div>
+
+      <div className="range-controls">
+        <label>Start Station:</label>
+        <input
+          type="number"
+          value={startStation ?? ""}
+          onChange={(e) => onStartChange && onStartChange(e.target.value)}
+          onBlur={(e) => onStartCommit && onStartCommit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onStartCommit && onStartCommit((e.target as HTMLInputElement).value); }}
+          style={{ width: 110, flex: "0 0 auto" }}
+        />
+        <label>End Station:</label>
+        <input
+          type="number"
+          value={endStation ?? ""}
+          onChange={(e) => onEndChange && onEndChange(e.target.value)}
+          onBlur={(e) => onEndCommit && onEndCommit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onEndCommit && onEndCommit((e.target as HTMLInputElement).value); }}
+          style={{ width: 110, flex: "0 0 auto" }}
+        />
       </div>
 
       <button onClick={onOpenExport}>Export PDF / DXF…</button>
