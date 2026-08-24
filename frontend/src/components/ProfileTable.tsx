@@ -211,7 +211,13 @@ export default function ProfileTable({
   }
 
   const isCompact = resolvedMode === "compact";
-  const stickyClass = (n: number) => (isCompact ? "" : `sticky-col sticky-col-${n}`);
+  const stickyLefts: Record<number, number> = { 1: 0, 2: 90, 3: 180 };
+  const stickyClass = (n: number) => (isCompact || n > 3 ? "" : `sticky-col sticky-col-${n}`);
+  const columnWidths = [
+    // RIVER, REACH, RS, STRUC, LENGTHCHNL, CUMDIST, MINCHEL, LOWCHORD, HIGHCHORD, LETTER, LABEL, primary profile
+    90, 100, 90, 80, 120, 100, 120, 110, 110, 70, 120, 120,
+    ...extraProfiles.map(() => 120),
+  ];
 
   return (
     <div className={`profile-table profile-table--${resolvedMode}`}>
@@ -219,12 +225,17 @@ export default function ProfileTable({
         {errorText && <div className="table-error">{errorText}</div>}
         {copiedText != null && <div className="table-copy">Copied: {copiedText}</div>}
         <table ref={tableRef} className={`fis ${workspaceMode ? "fis--workspace" : ""}`}>
+        <colgroup>
+          {columnWidths.map((width, index) => (
+            <col key={`col-${index}`} style={{ width: `${width}px`, minWidth: `${width}px` }} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
-            <th className={stickyClass(1)}>RIVER</th>
-            <th className={stickyClass(2)}>REACH</th>
-            <th className={stickyClass(3)}>RS</th>
-            <th className={stickyClass(4)}>STRUC</th>
+            <th className={stickyClass(1)} style={isCompact ? undefined : { left: `${stickyLefts[1]}px` }}>RIVER</th>
+            <th className={stickyClass(2)} style={isCompact ? undefined : { left: `${stickyLefts[2]}px` }}>REACH</th>
+            <th className={stickyClass(3)} style={isCompact ? undefined : { left: `${stickyLefts[3]}px` }}>RS</th>
+            <th>STRUC</th>
             <th>LENGTHCHNL</th>
             <th>CUMDIST</th>
             <th>MINCHEL</th>
@@ -249,10 +260,10 @@ export default function ProfileTable({
                   data-row-rs={r.rs}
                   onClick={() => onSelectRs(r.rs)}
                 >
-                  <td className={stickyClass(1)}>{r.river}</td>
-                  <td className={stickyClass(2)}>{r.reach}</td>
-                  <td className={stickyClass(3)}>{r.rs}</td>
-                  <td className={stickyClass(4)}></td>
+                  <td className={stickyClass(1)} style={isCompact ? undefined : { left: `${stickyLefts[1]}px` }}>{r.river}</td>
+                  <td className={stickyClass(2)} style={isCompact ? undefined : { left: `${stickyLefts[2]}px` }}>{r.reach}</td>
+                  <td className={stickyClass(3)} style={isCompact ? undefined : { left: `${stickyLefts[3]}px` }}>{r.rs}</td>
+                  <td></td>
                   {isCompact ? (
                     <>
                       <td>{fmt(r.length_channel)}</td>
@@ -322,10 +333,10 @@ export default function ProfileTable({
             }
             return (
               <tr key={`st${i}`} className="struct" data-row-rs={r.rs} onClick={() => onSelectRs(r.rs)}>
-                <td className={stickyClass(1)}>{r.river}</td>
-                <td className={stickyClass(2)}>{r.reach}</td>
-                <td className={stickyClass(3)}>{r.rs}</td>
-                <td className={stickyClass(4)}>{r.type}</td>
+                <td className={stickyClass(1)} style={isCompact ? undefined : { left: `${stickyLefts[1]}px` }}>{r.river}</td>
+                <td className={stickyClass(2)} style={isCompact ? undefined : { left: `${stickyLefts[2]}px` }}>{r.reach}</td>
+                <td className={stickyClass(3)} style={isCompact ? undefined : { left: `${stickyLefts[3]}px` }}>{r.rs}</td>
+                <td>{r.type}</td>
                 {isCompact ? (
                   <>
                     <td>{fmt(r.weir_width)}</td>

@@ -80,15 +80,25 @@ export default function ProfileMappingDialog({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
-        <header>
+    <div className="profile-mapping-backdrop" onClick={onClose}>
+      <div className="profile-mapping-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="profile-mapping-header">
           <h2>Profile Mapping</h2>
-          <button className="ghost" type="button" onClick={onClose}>×</button>
+          <button className="profile-mapping-close" type="button" onClick={onClose} aria-label="Close profile mapping">×</button>
         </header>
 
-        <div className="table-scroll" style={{ maxHeight: 540 }}>
-          <table className="fis">
+        <div className="profile-mapping-context">
+          <span>{rows.length} profile mappings</span>
+        </div>
+
+        <div className="profile-mapping-body">
+          <table className="profile-mapping-table">
+            <colgroup>
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "28%" }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>HEC-RAS Profile</th>
@@ -119,7 +129,6 @@ export default function ProfileMappingDialog({
                   <td>
                     <input
                       type="number"
-                      className="cell-input"
                       value={row.backwater_elev ?? ""}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -131,7 +140,6 @@ export default function ProfileMappingDialog({
                   </td>
                   <td>
                     <input
-                      className="cell-input cell-input--wide"
                       value={row.backwater_text ?? ""}
                       onChange={(e) => updateRow(index, { backwater_text: e.target.value })}
                     />
@@ -142,8 +150,8 @@ export default function ProfileMappingDialog({
           </table>
         </div>
 
-        <footer className="modal-actions">
-          <button className="ghost" type="button" onClick={onClose}>Cancel</button>
+        <footer className="profile-mapping-footer">
+          <button type="button" className="profile-mapping-secondary" onClick={onClose}>Cancel</button>
           <button type="button" disabled={saving} onClick={handleSave}>
             {saving ? "Saving…" : "Save / Apply"}
           </button>

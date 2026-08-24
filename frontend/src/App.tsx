@@ -8,6 +8,7 @@ import ExportDialog from "./components/ExportDialog";
 import ReachMergePanel from "./components/ReachMergePanel";
 import LandmarksPanel from "./components/LandmarksPanel";
 import ProfileMappingDialog from "./components/ProfileMappingDialog";
+import PanelSetupDialog from "./components/PanelSetupDialog";
 import { api, type ProfileMeta } from "./api/client";
 
 export type Session = {
@@ -33,6 +34,7 @@ export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [profileMappingOpen, setProfileMappingOpen] = useState(false);
   const [profileTableOpen, setProfileTableOpen] = useState(false);
+  const [panelSetupOpen, setPanelSetupOpen] = useState(false);
   const [useNodeNames, setUseNodeNames] = useState(false);
   const [workingByRs, setWorkingByRs] = useState<Record<string, number>>({});
   const [landmarks, setLandmarks] = useState<any[]>([]);
@@ -49,11 +51,12 @@ export default function App() {
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = profileTableOpen ? "hidden" : previousOverflow;
+    const shouldLock = profileTableOpen || panelSetupOpen || profileMappingOpen;
+    document.body.style.overflow = shouldLock ? "hidden" : previousOverflow;
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [profileTableOpen]);
+  }, [profileTableOpen, panelSetupOpen, profileMappingOpen]);
 
   async function refreshDbMeta(sid: string) {
     try {
@@ -334,6 +337,7 @@ export default function App() {
             onOpenExport={() => setExportOpen(true)}
             onOpenProfileMapping={() => setProfileMappingOpen(true)}
             onOpenEditProfileTable={() => setProfileTableOpen(true)}
+            onOpenPanelSetup={() => setPanelSetupOpen(true)}
             onFixDrawdowns={onFixDrawdowns}
             onAutoLetter={onAutoLetter}
             onRecalcCumdist={onRecalcCumdist}
@@ -466,6 +470,12 @@ export default function App() {
             profiles={profileMeta}
             onClose={() => setProfileMappingOpen(false)}
             onSave={saveProfileMapping}
+          />
+          <PanelSetupDialog
+            open={panelSetupOpen}
+            sessionId={session.session_id}
+            profile={profileData}
+            onClose={() => setPanelSetupOpen(false)}
           />
           <ExportDialog
             open={exportOpen}

@@ -79,6 +79,27 @@ export type ExportOptions = {
 };
 
 export type ExportResponse = { path: string; size_bytes: number; format?: string };
+
+export type PanelInput = {
+  panel: number;
+  start_station: number;
+  end_station: number;
+  start_elevation: number;
+  end_elevation: number;
+  panel_x?: number;
+  panel_y?: number;
+  h_scale?: number;
+  v_scale?: number;
+};
+
+export type PanelsReplace = {
+  panels: PanelInput[];
+  auto: boolean;
+  h_scale?: number | null;
+  v_scale?: number | null;
+  page_size?: string | null;
+};
+
 export type AppSettings = {
   host?: string;
   port?: number;
@@ -119,6 +140,7 @@ export const api = {
   },
   getMap: (sid: string) => req<GeoJSON.FeatureCollection>(`/api/map/${sid}`),
   getDb: (sid: string) => req<any>(`/api/db/${sid}`),
+  getPanels: (sid: string) => req<any>(`/api/db/${sid}/panels`),
   patchWorking: (sid: string, patches: any[]) =>
     req<any>(`/api/db/${sid}/working`, { method: "PATCH", body: JSON.stringify(patches) }),
   fixDrawdowns: (sid: string) =>
@@ -144,7 +166,7 @@ export const api = {
     req<any>(`/api/db/${sid}/header`, { method: "PUT", body: JSON.stringify(body) }),
   putProfiles: (sid: string, updates: any[]) =>
     req<any>(`/api/db/${sid}/profiles`, { method: "PUT", body: JSON.stringify(updates) }),
-  putPanels: (sid: string, body: any) =>
+  putPanels: (sid: string, body: PanelsReplace) =>
     req<any>(`/api/db/${sid}/panels`, { method: "PUT", body: JSON.stringify(body) }),
   putLandmarks: (sid: string, items: any[]) =>
     req<any>(`/api/db/${sid}/landmarks`, { method: "PUT", body: JSON.stringify(items) }),
