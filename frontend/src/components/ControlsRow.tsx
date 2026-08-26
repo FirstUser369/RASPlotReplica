@@ -21,6 +21,12 @@ type Props = {
   onStartCommit?: (v: number | string) => void;
   onEndCommit?: (v: number | string) => void;
   onAutoEnd?: () => void;
+  startElevationInput?: string;
+  endElevationInput?: string;
+  onStartElevationChange?: (v: string) => void;
+  onEndElevationChange?: (v: string) => void;
+  onStartElevationCommit?: (v: number | string) => void;
+  onEndElevationCommit?: (v: number | string) => void;
 };
 
 export default function ControlsRow({
@@ -46,6 +52,12 @@ export default function ControlsRow({
   onStartCommit,
   onEndCommit,
   onAutoEnd,
+  startElevationInput,
+  endElevationInput,
+  onStartElevationChange,
+  onEndElevationChange,
+  onStartElevationCommit,
+  onEndElevationCommit,
 }: Props) {
   const reaches = session?.reaches ?? [];
   const names: string[] = profileNames.length
@@ -137,6 +149,27 @@ export default function ControlsRow({
         <button type="button" className="tool" onClick={onAutoEnd} disabled={!onAutoEnd} title="Set End Station to one printable panel of coverage">
           Auto End
         </button>
+      </div>
+
+      <div className="range-controls">
+        <label>Start Elevation:</label>
+        <input
+          type="number"
+          value={startElevationInput ?? ""}
+          onChange={(e) => onStartElevationChange && onStartElevationChange(e.target.value)}
+          onBlur={(e) => onStartElevationCommit && onStartElevationCommit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onStartElevationCommit && onStartElevationCommit((e.target as HTMLInputElement).value); }}
+          style={{ width: 110, flex: "0 0 auto" }}
+        />
+        <label>End Elevation:</label>
+        <input
+          type="number"
+          value={endElevationInput ?? ""}
+          onChange={(e) => onEndElevationChange && onEndElevationChange(e.target.value)}
+          onBlur={(e) => onEndElevationCommit && onEndElevationCommit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onEndElevationCommit && onEndElevationCommit((e.target as HTMLInputElement).value); }}
+          style={{ width: 110, flex: "0 0 auto" }}
+        />
       </div>
 
       <button onClick={onOpenExport}>Export PDF / DXF…</button>

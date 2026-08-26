@@ -9,7 +9,7 @@ import ReachMergePanel from "./components/ReachMergePanel";
 import LandmarksPanel from "./components/LandmarksPanel";
 import ProfileMappingDialog from "./components/ProfileMappingDialog";
 import PanelSetupDialog from "./components/PanelSetupDialog";
-import { api, type ProfileMeta } from "./api/client";
+import { api, type GetProfileResponse, type ProfileMeta } from "./api/client";
 
 export type Session = {
   session_id: string;
@@ -18,6 +18,32 @@ export type Session = {
   reaches: Array<{ river: string; reach: string; cross_sections: any[]; structures: any[] }>;
   profiles: Array<{ name: string; wsel: number[] }>;
 };
+
+type ElevationBounds = { min: number; max: number };
+
+function getProfileElevationBounds(profile: GetProfileResponse): ElevationBounds | null {
+  const values: number[] = [];
+  for (const row of profile.cross_sections ?? []) {
+    const candidates = [row.wsel, row.minchel, ...Object.values(row.wsel_by_profile ?? {})];
+    for (const value of candidates) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) values.push(numeric);
+    }
+  }
+  if (!values.length) return null;
+  return { min: Math.min(...values), max: Math.max(...values) };
+}
+
+function safeElevationRange(bounds: ElevationBounds): ElevationBounds {
+  if (bounds.min !== bounds.max) return bounds;
+  const padding = Math.max(1, Math.abs(bounds.min) * 0.01);
+  return { min: bounds.min - padding, max: bounds.max + padding };
+}
+
+function formatElevation(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "";
+  return String(Number(value.toFixed(2)));
+}
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -29,6 +55,12 @@ export default function App() {
   const [endStation, setEndStation] = useState<number | null>(null);
   const [availMinStation, setAvailMinStation] = useState<number | null>(null);
   const [availMaxStation, setAvailMaxStation] = useState<number | null>(null);
+  const [startElevation, setStartElevation] = useState<number | null>(null);
+  const [endElevation, setEndElevation] = useState<number | null>(null);
+  const [availElevationBounds, setAvailElevationBounds] = useState<ElevationBounds | null>(null);
+  const [startElevationInput, setStartElevationInput] = useState("");
+  const [endElevationInput, setEndElevationInput] = useState("");
+  const [elevationCustomized, setElevationCustomized] = useState(false);
   const [geojson, setGeojson] = useState<any>(null);
   const [selectedRs, setSelectedRs] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,9 +109,20 @@ export default function App() {
     }
   }
 
-  async function loadProfile(sid: string, rIdx: number, profiles: string[], resetRange = false) {
+  async function loadProfile(sid: string, rIdx: number, profiles: string[], resetRange = false, resetElevation = false) {
     const p = await api.getProfile(sid, rIdx, profiles);
     setProfileData(p);
+
+    const elevationBounds = getProfileElevationBounds(p);
+    setAvailElevationBounds(elevationBounds);
+    if (resetRange || resetElevation || !elevationCustomized) {
+      const nextRange = elevationBounds ? safeElevationRange(elevationBounds) : null;
+      setStartElevation(nextRange?.min ?? null);
+      setEndElevation(nextRange?.max ?? null);
+      setStartElevationInput(formatElevation(nextRange?.min ?? null));
+      setEndElevationInput(formatElevation(nextRange?.max ?? null));
+      setElevationCustomized(false);
+    }
 
     // determine available cumulative distance extents for this reach
     try {
@@ -126,9 +169,10 @@ export default function App() {
       setSelectedProfiles(init);
       setReachIdx(0);
       setUseNodeNames(false);
+      setElevationCustomized(false);
       setMergeOrder(s.reaches.map((_, i) => i));
       setJunctions(s.reaches.slice(1).map(() => 0));
-      await loadProfile(s.session_id, 0, init);
+      await loadProfile(s.session_id, 0, init, false, true);
       setGeojson(await api.getMap(s.session_id));
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -227,6 +271,44 @@ export default function App() {
       return;
     }
     setEndStation(v);
+    setError(null);
+  }
+
+  function commitStartElevation(raw: number | string) {
+    const text = String(raw);
+    const v = Number(text);
+    if (!text.trim() || !Number.isFinite(v)) {
+      setStartElevationInput(formatElevation(startElevation));
+      setError("Invalid start elevation");
+      return;
+    }
+    if (endElevation != null && v >= endElevation) {
+      setStartElevationInput(formatElevation(startElevation));
+      setError("Start elevation must be less than End elevation");
+      return;
+    }
+    setStartElevation(v);
+    setStartElevationInput(formatElevation(v));
+    setElevationCustomized(true);
+    setError(null);
+  }
+
+  function commitEndElevation(raw: number | string) {
+    const text = String(raw);
+    const v = Number(text);
+    if (!text.trim() || !Number.isFinite(v)) {
+      setEndElevationInput(formatElevation(endElevation));
+      setError("Invalid end elevation");
+      return;
+    }
+    if (startElevation != null && v <= startElevation) {
+      setEndElevationInput(formatElevation(endElevation));
+      setError("End elevation must be greater than Start elevation");
+      return;
+    }
+    setEndElevation(v);
+    setEndElevationInput(formatElevation(v));
+    setElevationCustomized(true);
     setError(null);
   }
 
@@ -407,7 +489,7 @@ export default function App() {
       });
       // after multi-merge, profile endpoint still wants reach_idx 0 of synthetic
       setReachIdx(0);
-      await loadProfile(session.session_id, 0, selectedProfiles);
+      await loadProfile(session.session_id, 0, selectedProfiles, false, true);
       setGeojson(await api.getMap(session.session_id));
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -454,6 +536,12 @@ export default function App() {
             onStartCommit={commitStartStation}
             onEndCommit={commitEndStation}
             onAutoEnd={onAutoEnd}
+            startElevationInput={startElevationInput}
+            endElevationInput={endElevationInput}
+            onStartElevationChange={setStartElevationInput}
+            onEndElevationChange={setEndElevationInput}
+            onStartElevationCommit={commitStartElevation}
+            onEndElevationCommit={commitEndElevation}
           />
           <div className="main">
             <div className="main__chart">
@@ -466,6 +554,8 @@ export default function App() {
                   onAddLandmark={addLandmark}
                     startStation={startStation}
                     endStation={endStation}
+                    startElevation={startElevation}
+                    endElevation={endElevation}
                 />
               )}
               <div className="chart-hint">Shift+click a point to add a landmark</div>

@@ -9,6 +9,8 @@ type Props = {
   onAddLandmark?: (distance: number, elevation: number) => void;
   startStation?: number | null;
   endStation?: number | null;
+  startElevation?: number | null;
+  endElevation?: number | null;
 };
 
 const PROFILE_COLORS = [
@@ -41,6 +43,8 @@ export default function ProfileChart({
   profile, selectedRs, onSelectRs, landmarks = [], onAddLandmark,
   startStation = null,
   endStation = null,
+  startElevation = null,
+  endElevation = null,
 }: Props) {
   const xs = profile.cross_sections;
   const cumdist = xs.map((c) => c.cumdist);
@@ -189,6 +193,11 @@ export default function ProfileChart({
     }
   }
 
+  const hasElevationRange =
+    startElevation != null && endElevation != null &&
+    Number.isFinite(startElevation) && Number.isFinite(endElevation) &&
+    startElevation < endElevation;
+
   const layout: any = {
     title: {
       text: `Flood Profile — ${profile.reach.river} \\ ${profile.reach.reach}`,
@@ -200,7 +209,11 @@ export default function ProfileChart({
       range: [(startStation ?? Math.min(...cumdist.filter((d) => Number.isFinite(d)))), (endStation ?? Math.max(...cumdist.filter((d) => Number.isFinite(d))))],
       autorange: false,
     },
-    yaxis: { title: "Elevation (NAVD88, ft)", gridcolor: "#eee" },
+    yaxis: {
+      title: "Elevation (NAVD88, ft)",
+      gridcolor: "#eee",
+      ...(hasElevationRange ? { range: [startElevation, endElevation], autorange: false } : {}),
+    },
     legend: { orientation: "h", y: -0.2 },
     height: Math.min(600, window.innerHeight - 120),
     margin: { l: 60, r: 20, t: 40, b: 60 },
@@ -212,7 +225,7 @@ export default function ProfileChart({
     <Plot
       data={traces}
       layout={layout}
-      config={{ displaylogo: false, responsive: true, doubleClick: "reset" }}
+      config={{ displaylogo: false, responsive: true, doubleClick: false }}
       onClick={(ev: any) => {
         const pts = ev?.points ?? [];
         const p = pts[0];
