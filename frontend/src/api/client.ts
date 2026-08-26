@@ -100,6 +100,15 @@ export type PanelsReplace = {
   page_size?: string | null;
 };
 
+export type AutoEndResponse = {
+  start_station: number;
+  end_station: number;
+  h_scale: number;
+  page_size: string;
+  usable_width_in: number;
+  panel_coverage: number;
+};
+
 export type AppSettings = {
   host?: string;
   port?: number;
@@ -141,6 +150,8 @@ export const api = {
   getMap: (sid: string) => req<GeoJSON.FeatureCollection>(`/api/map/${sid}`),
   getDb: (sid: string) => req<any>(`/api/db/${sid}`),
   getPanels: (sid: string) => req<any>(`/api/db/${sid}/panels`),
+  getAutoEnd: (sid: string, startStation: number) =>
+    req<AutoEndResponse>(`/api/db/${sid}/auto-end?start_station=${encodeURIComponent(String(startStation))}`),
   patchWorking: (sid: string, patches: any[]) =>
     req<any>(`/api/db/${sid}/working`, { method: "PATCH", body: JSON.stringify(patches) }),
   fixDrawdowns: (sid: string) =>

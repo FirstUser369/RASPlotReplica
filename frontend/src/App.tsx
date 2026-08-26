@@ -181,6 +181,35 @@ export default function App() {
     setError(null);
   }
 
+  async function onAutoEnd() {
+    if (!session || availMinStation == null || availMaxStation == null) return;
+    const v = Number(startStation);
+    if (!Number.isFinite(v)) {
+      setError("Invalid start station");
+      return;
+    }
+    if (v < availMinStation) {
+      setStartStation(availMinStation);
+      setError(null);
+      return;
+    }
+    if (v >= availMaxStation) {
+      setError("Start station must be below the available profile maximum");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.getAutoEnd(session.session_id, v);
+      setEndStation(result.end_station);
+    } catch (e: any) {
+      setError(String(e.message ?? "Unable to calculate Auto End station"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function commitEndStation(raw: number | string) {
     if (availMinStation == null || availMaxStation == null) return;
     const v = Number(raw);
@@ -424,6 +453,7 @@ export default function App() {
             onEndChange={(v) => setEndStation(Number(v))}
             onStartCommit={commitStartStation}
             onEndCommit={commitEndStation}
+            onAutoEnd={onAutoEnd}
           />
           <div className="main">
             <div className="main__chart">

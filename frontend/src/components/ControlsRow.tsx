@@ -20,6 +20,7 @@ type Props = {
   onEndChange?: (v: number | string) => void;
   onStartCommit?: (v: number | string) => void;
   onEndCommit?: (v: number | string) => void;
+  onAutoEnd?: () => void;
 };
 
 export default function ControlsRow({
@@ -44,6 +45,7 @@ export default function ControlsRow({
   onEndChange,
   onStartCommit,
   onEndCommit,
+  onAutoEnd,
 }: Props) {
   const reaches = session?.reaches ?? [];
   const names: string[] = profileNames.length
@@ -132,6 +134,9 @@ export default function ControlsRow({
           onKeyDown={(e) => { if (e.key === "Enter") onEndCommit && onEndCommit((e.target as HTMLInputElement).value); }}
           style={{ width: 110, flex: "0 0 auto" }}
         />
+        <button type="button" className="tool" onClick={onAutoEnd} disabled={!onAutoEnd} title="Set End Station to one printable panel of coverage">
+          Auto End
+        </button>
       </div>
 
       <button onClick={onOpenExport}>Export PDF / DXF…</button>

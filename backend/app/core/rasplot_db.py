@@ -68,6 +68,16 @@ def plot_usable_size(
     return page_w, page_h, uw, uh
 
 
+def panel_coverage(
+    h_scale: float,
+    page_size: str = "11x17",
+    custom_page: tuple[float, float] | None = None,
+) -> float:
+    """Return the station coverage of one printable panel in feet."""
+    _pw, _ph, usable_width_in, _uh = plot_usable_size(page_size, custom_page)
+    return float(h_scale) * usable_width_in
+
+
 @dataclass
 class WorkingRow:
     """One row of the FIS / RASPLOT profile table."""
@@ -466,7 +476,7 @@ def auto_panels(
             v_scale=vs,
         )]
 
-    span = hs * uw  # feet of station per panel
+    span = panel_coverage(hs, page_size, custom_page)  # feet of station per panel
     # Tiny overflow tolerance (0.5%) avoids a near-empty second panel when
     # the reach is only a few feet longer than one page at the listed scale.
     if reach_len <= span * 1.005:

@@ -5,6 +5,7 @@ All routes under the /api prefix.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,8 @@ from ..core.merge import merge_reaches, compute_cumdist, MergedReach
 from ..core.rasplot_db import (
     RasplotDatabase, WorkHeader, WorkingRow, Landmark, PanelDef, ProfileMeta,
     build_db_from_plan, auto_letter, apply_node_names, reletter_from,
-    recalc_cumdist, fix_drawdowns, auto_panels, DEFAULT_FREQUENCIES,
+    recalc_cumdist, fix_drawdowns, auto_panels, panel_coverage,
+    PAGE_SIZES, plot_usable_size, DEFAULT_FREQUENCIES,
 )
 
 router = APIRouter(prefix="/api")
@@ -762,6 +764,50 @@ def put_landmarks(sid: str, items: list[LandmarkIn]) -> dict:
 def get_panels(sid: str) -> dict:
     from dataclasses import asdict
     return {"panels": [asdict(p) for p in _session_db(sid).panels]}
+
+
+@router.get("/db/{sid}/auto-end")
+def get_auto_end(sid: str, start_station: float = Query(...)) -> dict:
+    db = _session_db(sid)
+    if not math.isfinite(start_station):
+        raise HTTPException(400, "Start station must be numeric.")
+
+    cumdists = [
+        float(row.cumdist)
+        for row in db.working
+        if row.kind == "xs" and math.isfinite(float(row.cumdist))
+    ]
+    if not cumdists:
+        raise HTTPException(400, "No profile station data is available.")
+
+    available_min = min(cumdists)
+    available_max = max(cumdists)
+    if start_station < available_min:
+        raise HTTPException(400, "Start station is below the available profile range.")
+    if start_station >= available_max:
+        raise HTTPException(400, "Start station must be below the available profile maximum.")
+
+    h_scale = float(db.header.h_scale)
+    if not math.isfinite(h_scale) or h_scale <= 0:
+        raise HTTPException(400, "Horizontal scale must be greater than zero.")
+
+    page_size = db.header.page_size
+    if not page_size or page_size not in PAGE_SIZES:
+        raise HTTPException(400, "Page size is missing or unsupported.")
+
+    _pw, _ph, usable_width_in, _uh = plot_usable_size(page_size)
+    coverage = panel_coverage(h_scale, page_size)
+    if not math.isfinite(coverage) or coverage <= 0:
+        raise HTTPException(400, "Calculated panel coverage must be greater than zero.")
+
+    return {
+        "start_station": start_station,
+        "end_station": min(available_max, start_station + coverage),
+        "h_scale": h_scale,
+        "page_size": page_size,
+        "usable_width_in": usable_width_in,
+        "panel_coverage": coverage,
+    }
 
 
 @router.put("/db/{sid}/panels")
