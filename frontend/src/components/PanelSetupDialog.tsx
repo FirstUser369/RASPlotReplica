@@ -242,7 +242,7 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
     const minWidth = 10;
 
     if (boundaryType === "outer-start") {
-      const maxAllowed = Math.max(nextPanels[0].start_station, nextPanels[0].end_station - minWidth);
+      const maxAllowed = nextPanels[0].end_station - minWidth;
       nextPanels[0].start_station = Math.min(value, maxAllowed);
       return nextPanels;
     }
