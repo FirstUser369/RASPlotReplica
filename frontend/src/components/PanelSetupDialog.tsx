@@ -29,6 +29,7 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [fitVersion, setFitVersion] = useState(0);
+  const [selectedPanelIndex, setSelectedPanelIndex] = useState<number | null>(null);
   const [dragState, setDragState] = useState<
     | { kind: "station"; boundaryType: "outer-start" | "inner" | "outer-end"; boundaryIndex: number }
     | null
@@ -655,7 +656,16 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
 
                     return (
                       <g key={`${panel.panel ?? index}-panel`}>
-                        <rect x={x} y={y} width={width} height={height} fill="rgba(25,107,214,0.03)" stroke="none" />
+                        <rect 
+                          x={x} 
+                          y={y} 
+                          width={width} 
+                          height={height} 
+                          fill={selectedPanelIndex === index ? "#e6f0ff" : "rgba(25,107,214,0.03)"} 
+                          stroke={selectedPanelIndex === index ? "#196bd6" : "none"}
+                          strokeWidth="1.5"
+                          onClick={() => setSelectedPanelIndex(index)}
+                        />
                         <text x={centerX} y={Math.max(preview.plot.top + 6, centerY - 2)} fontSize="3.0" textAnchor="middle" fill="#1d2d40" fontWeight="500">P{panel.panel}</text>
                       </g>
                     );
