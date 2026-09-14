@@ -56,6 +56,12 @@ class Structure:
     poly_points: list[tuple[float, float]] = field(default_factory=list)
     profile_data: list[tuple[float, float]] = field(default_factory=list)  # station, elevation of centerline
     index: int = 0
+    us_rs: str = ""
+    ds_rs: str = ""
+    culvert_length: Optional[float] = None
+    culvert_us_distance: Optional[float] = None
+    invert_us: Optional[float] = None
+    invert_ds: Optional[float] = None
 
 
 @dataclass
@@ -170,23 +176,18 @@ class HdfReader:
 
     def _find_geometry(self) -> Optional[Path]:
         with h5py.File(self.plan_hdf_path, "r") as f:
-            geoms = []
-            for proc_name, date_s, args in f.get("Results/Summary/Compute Processes", [])[():] if False else []:
-                pass  # placeholder; we'll instead guess from filename
-        # Muncie: Muncie.p04.hdf -> look for Muncie.g*.hdf referenced in .prj
-        # We attempt to find the geometry .hdf by convention since the plan
-        # HDF stores a relative path but not always reliably.
+            if "Geometry" in f:
+                return self.plan_hdf_path
+
+        # Some HEC-RAS plans embed geometry directly in the plan HDF; otherwise,
+        # look for the sibling geometry HDF by convention. Plain .g## files are
+        # not HDF5 and must not be treated as geometry sources.
         prj_root = self.plan_hdf_path.parent
         stem = self.plan_hdf_path.stem  # Muncie.p04
         base = stem.split(".")[0]      # Muncie
-        plan_suffix = stem.split(".")[1] if "." in stem else ""
         candidates = sorted(prj_root.glob(f"{base}.g*.hdf"))
-        if not candidates:
-            candidates = sorted(prj_root.glob(f"{base}.g*"))
         if candidates:
-            # prefer a .hdf if present
-            hdf_candidates = [c for c in candidates if c.suffix == ".hdf"]
-            return hdf_candidates[0] if hdf_candidates else candidates[0]
+            return candidates[0]
         return None
 
     def _has_unsteady_results(self) -> bool:
@@ -223,11 +224,17 @@ class HdfReader:
                 se_info = xs["Station Elevation Info"][()] if "Station Elevation Info" in xs else None
                 se_values = xs["Station Elevation Values"][()] if "Station Elevation Values" in xs else None
 
+                fields = xs_attrs.dtype.names or ()
                 for i, rec in enumerate(xs_attrs):
                     river = _s(rec["River"])
                     reach = _s(rec["Reach"])
                     rs = _s(rec["RS"])
-                    name = _s(rec["Name"])
+                    if "Name" in fields:
+                        name = _s(rec["Name"])
+                    elif "Node Name" in fields:
+                        name = _s(rec["Node Name"])
+                    else:
+                        name = ""
                     length_channel = _f(rec["Len Channel"]) or 0.0
                     left_bank = _f(rec["Left Bank"]) or 0.0
                     right_bank = _f(rec["Right Bank"]) or 0.0
@@ -265,10 +272,14 @@ class HdfReader:
                 s_cl_pts = structs["Centerline Points"][()] if "Centerline Points" in structs else None
                 s_profile_data = structs["Profile Data"][()] if "Profile Data" in structs else None
                 s_table_info = structs["Table Info"][()] if "Table Info" in structs else None
+                culvert_groups = structs.get("Culvert Groups")
+                culvert_group_attrs = None
+                if culvert_groups is not None and "Attributes" in culvert_groups:
+                    culvert_group_attrs = culvert_groups["Attributes"][()]
                 fields = s_attrs.dtype.names
                 for i, rec in enumerate(s_attrs):
                     river = _s(rec["River"]) if "River" in fields else ""
-                    reach = _s(rec["Reach"]) if "Reach" in fields else ""
+                    reach_name = _s(rec["Reach"]) if "Reach" in fields else ""
                     rs = _s(rec["RS"]) if "RS" in fields else ""
                     stype = _s(rec["Type"]) if "Type" in fields else ""
                     name = ""
@@ -290,12 +301,37 @@ class HdfReader:
                     # min as a base when available for laterals / inline weirs
                     minchel = None
                     st = Structure(
-                        river=river, reach=reach, rs=rs, type=stype, name=name,
+                        river=river, reach=reach_name, rs=rs, type=stype, name=name,
                         upstream_distance=up_dist or 0.0, weir_width=weir_w or 0.0,
                         low_chord=low_chord, high_chord=high_chord, minchel=minchel,
                         poly_points=polypts, profile_data=pdata, index=i,
                     )
-                    key = (river, reach)
+                    if stype.lower() == "culvert":
+                        st.us_rs = _s(rec["US RS"]) if "US RS" in fields else ""
+                        st.ds_rs = _s(rec["DS RS"]) if "DS RS" in fields else ""
+                        st.us_rs = st.us_rs.strip()
+                        st.ds_rs = st.ds_rs.strip()
+                        if culvert_group_attrs is not None:
+                            group_fields = culvert_group_attrs.dtype.names or ()
+                            culvert_rec = None
+                            for grp in culvert_group_attrs:
+                                if "River" in group_fields and _s(grp["River"]) != river:
+                                    continue
+                                if "Reach" in group_fields and _s(grp["Reach"]) != reach_name:
+                                    continue
+                                if "RS" in group_fields and _s(grp["RS"]) != rs:
+                                    continue
+                                if "Struct ID" in group_fields and "Struct ID" in fields:
+                                    if _s(grp["Struct ID"]) != _s(rec["Struct ID"]):
+                                        continue
+                                culvert_rec = grp
+                                break
+                            if culvert_rec is not None:
+                                st.culvert_length = _f(culvert_rec["Length"]) if "Length" in group_fields else None
+                                st.culvert_us_distance = _f(culvert_rec["US Distance"]) if "US Distance" in group_fields else None
+                                st.invert_us = _f(culvert_rec["Invert US"]) if "Invert US" in group_fields else None
+                                st.invert_ds = _f(culvert_rec["Invert DS"]) if "Invert DS" in group_fields else None
+                    key = (river, reach_name)
                     if key in reaches_map:
                         reaches_map[key].structures.append(st)
 
@@ -478,26 +514,29 @@ class HdfReader:
         return profiles
 
     def _read_steady_profiles(self, f: h5py.File, reaches: list[ReachGeometry], cs_path: str, wsel: str = "Water Surface") -> list[ProfileResult]:
-        cs = f[cs_path]
-        # The dataset is structured as (num_profiles, num_xs)
+        base = f[cs_path]
+        cs = base
+        if wsel not in base and "Water Surface" not in base and "Cross Sections" in base:
+            cs = base["Cross Sections"]
+
         wsel_ds = cs[wsel] if wsel in cs else None
         if wsel_ds is None:
-            # try the more direct key
             wsel_ds = cs.get("Water Surface", None)
         if wsel_ds is None:
             return []
+
         arr = wsel_ds[()]
-        # Profile names live in a sibling dataset
         names: list[str] = []
-        # HEC-RAS steady profiles sometimes label via "Profile Names" attribute
-        if "Profile Names" in cs:
-            try:
-                names = [_s(n) for n in cs["Profile Names"][()]]
-            except Exception:
-                names = []
+        parent = base
+        if cs_path.endswith("/Cross Sections"):
+            parent = f[cs_path.rsplit("/Cross Sections", 1)[0]]
+        if "Profile Names" in parent:
+            names = [_s(n) for n in parent["Profile Names"][()]]
+        elif "Profile Names" in cs:
+            names = [_s(n) for n in cs["Profile Names"][()]]
         if not names:
             names = [f"Profile {i+1}" for i in range(arr.shape[0])]
-        # Order xs by descending RS like geometry
+
         attrs = cs.get("Cross Section Attributes")
         if attrs is not None:
             attrs_a = attrs[()]

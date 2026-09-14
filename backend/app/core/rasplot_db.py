@@ -268,23 +268,53 @@ def build_working_from_plan(
             p.name: (p.wsel[i] if i < len(p.wsel) else None)
             for p in plan.profiles
         }
+        row_length_chnl = xs.length_channel
+        if i == len(xs_list) - 1:
+            row_length_chnl = 0.0
         rows.append(WorkingRow(
             id=rid, river=xs.river, reach=xs.reach, rs=xs.rs,
-            length_chnl=xs.length_channel, cumdist=cumdist[i] if i < len(cumdist) else 0.0,
+            length_chnl=row_length_chnl, cumdist=cumdist[i] if i < len(cumdist) else 0.0,
             minchel=xs.minchel, profiles=profs, kind="xs", source_xs_index=i,
         ))
         rid += 1
         for s in struct_at.get(i, []):
-            t = (s.type or "STRUCTURE").upper()
-            # Prefer paired -Dn / -Up for bridges/culverts/inline weirs
-            if any(k in t for k in ("BRIDGE", "CULVERT", "INLINE", "WEIR")) and "LATERAL" not in t:
+            s_type = (s.type or "STRUCTURE").upper()
+            if s_type == "CULVERT" and s.us_rs and s.ds_rs and s.culvert_length is not None and s.culvert_us_distance is not None and s.invert_us is not None and s.invert_ds is not None:
+                us_xs = next((x for x in xs_list if x.rs == s.us_rs), None)
+                if us_xs is not None and xs.rs == s.us_rs:
+                    row_length_chnl = s.culvert_us_distance
+                    rows[-1].length_chnl = row_length_chnl
+                dn_len = max(0.0, (us_xs.length_channel if us_xs is not None else 0.0) - (s.culvert_length or 0.0) - (s.culvert_us_distance or 0.0))
+                rows.append(WorkingRow(
+                    id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
+                    struc="CULVERT-UP",
+                    length_chnl=s.culvert_length or 0.0,
+                    cumdist=cumdist[i] if i < len(cumdist) else 0.0,
+                    minchel=s.invert_us,
+                    profiles={n: None for n in profile_names},
+                    kind="struct", source_xs_index=i,
+                ))
+                rid += 1
+                rows.append(WorkingRow(
+                    id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
+                    struc="CULVERT-DN",
+                    length_chnl=dn_len,
+                    cumdist=cumdist[i] if i < len(cumdist) else 0.0,
+                    minchel=s.invert_ds,
+                    profiles={n: None for n in profile_names},
+                    kind="struct", source_xs_index=i,
+                ))
+                rid += 1
+                continue
+
+            # Generic fallback for non-culvert structures.
+            if any(k in s_type for k in ("BRIDGE", "INLINE", "WEIR")) and "LATERAL" not in s_type:
                 faces = ("Dn", "Up")
             else:
                 faces = ("",)
             for face in faces:
-                label = f"{t}-{face}" if face else t
+                label = f"{s_type}-{face}" if face else s_type
                 scum = cumdist[i] if i < len(cumdist) else 0.0
-                # Up face slightly upstream of Dn for visibility on profile
                 if face == "Up":
                     scum = scum + max(1.0, (s.weir_width or 20.0) * 0.5)
                 elif face == "Dn":
@@ -361,29 +391,22 @@ def reletter_from(rows: list[WorkingRow], start_row_id: int, start_letter: str) 
 
 def recalc_cumdist(rows: list[WorkingRow], start: float = 0.0) -> list[WorkingRow]:
     """Recalculate CUMDIST from LENGTHCHNL, downstream→upstream (v3 §6.2)."""
-    # Collect XS only; structure cumdist interpolated after
-    xs = [r for r in rows if r.kind == "xs"]
-    # XS list is upstream-first; walk reverse (DS first)
+    if not rows:
+        return rows
+
     running = start
-    xs_cum: dict[int, float] = {}
-    for r in reversed(xs):
-        xs_cum[r.id] = running
+    ordered = list(reversed(rows))
+
+    # downstream-most row keeps the supplied start value; it represents the
+    # current station without adding its own LENGTHCHNL to the cumulative total.
+    if ordered:
+        ordered[0].cumdist = start
+        running = start
+
+    for r in ordered[1:]:
         running += r.length_chnl or 0.0
-    for r in rows:
-        if r.kind == "xs" and r.id in xs_cum:
-            r.cumdist = xs_cum[r.id]
-    # Structures: keep relative offset from nearest prior XS
-    last_xs_cum = None
-    last_xs_rs = None
-    for r in rows:
-        if r.kind == "xs":
-            last_xs_cum = r.cumdist
-            last_xs_rs = r.rs
-        elif r.kind == "struct" and last_xs_cum is not None:
-            # leave a small offset if Up/Dn encoded briefly
-            r.cumdist = last_xs_cum + (5.0 if r.struc.upper().endswith("-UP") else
-                                       (-5.0 if r.struc.upper().endswith("-DN") else 0.0))
-            r.cumdist = max(0.0, r.cumdist)
+        r.cumdist = running
+
     return rows
 
 

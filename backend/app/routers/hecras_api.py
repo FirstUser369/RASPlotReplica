@@ -324,17 +324,35 @@ def get_profile(
     sel = selected[0]
     cumdist = compute_cumdist(reach)
     xs_list = reach.cross_sections
-    # Prefer letters from session DB when available
-    letters_by_rs: dict[str, str | None] = {}
-    text_by_rs: dict[str, str | None] = {}
+
+    db: RasplotDatabase | None = None
+    working_xs_by_idx: dict[int, WorkingRow] = {}
+    working_xs_by_rs: dict[str, WorkingRow] = {}
+    working_struct_rows: list[WorkingRow] = []
+    working_struct_by_rs: dict[str, list[WorkingRow]] = {}
     try:
         db = _session_db(sid)
         for r in db.working:
             if r.kind == "xs":
+                if r.source_xs_index is not None:
+                    working_xs_by_idx[r.source_xs_index] = r
+                if r.rs:
+                    working_xs_by_rs[r.rs] = r
+            elif r.kind == "struct":
+                working_struct_rows.append(r)
+                if r.rs:
+                    working_struct_by_rs.setdefault(r.rs, []).append(r)
+    except Exception:
+        db = None
+
+    # Prefer letters from session DB when available
+    letters_by_rs: dict[str, str | None] = {}
+    text_by_rs: dict[str, str | None] = {}
+    if db is not None:
+        for r in db.working:
+            if r.kind == "xs":
                 letters_by_rs[r.rs] = r.label_letter
                 text_by_rs[r.rs] = r.label_text
-    except Exception:
-        letters_by_rs = {}
     if not letters_by_rs:
         struct_rs = [s.rs for s in reach.structures if s.rs]
         letter_list = _assign_label_letters(xs_list, struct_rs, every=label_every)
@@ -347,40 +365,89 @@ def get_profile(
 
     out_xs = []
     for i, xs in enumerate(xs_list):
+        working_row = working_xs_by_idx.get(i) or working_xs_by_rs.get(xs.rs)
+        if working_row is not None:
+            length_channel = working_row.length_chnl
+            cumdist_i = working_row.cumdist
+            minchel = working_row.minchel
+            label_letter = working_row.label_letter
+            label_text = working_row.label_text
+            main_wsel = working_row.profiles.get(sel.name)
+            if main_wsel is None and i < len(sel.wsel):
+                main_wsel = sel.wsel[i]
+            wsel_by_profile = {}
+            for p in selected_payload:
+                name = p["name"]
+                wsel_val = working_row.profiles.get(name)
+                if wsel_val is None and i < len(p["wsel"]):
+                    wsel_val = p["wsel"][i]
+                wsel_by_profile[name] = wsel_val
+        else:
+            length_channel = xs.length_channel
+            cumdist_i = cumdist[i]
+            minchel = xs.minchel
+            label_letter = letters_by_rs.get(xs.rs)
+            label_text = text_by_rs.get(xs.rs)
+            main_wsel = sel.wsel[i] if i < len(sel.wsel) else None
+            wsel_by_profile = {
+                p["name"]: (p["wsel"][i] if i < len(p["wsel"]) else None)
+                for p in selected_payload
+            }
+
         row = {
             "rs": xs.rs,
             "river": xs.river,
             "reach": xs.reach,
-            "length_channel": xs.length_channel,
-            "cumdist": cumdist[i],
-            "minchel": xs.minchel,
-            "wsel": sel.wsel[i] if i < len(sel.wsel) else None,
-            "label_letter": letters_by_rs.get(xs.rs),
-            "label_text": text_by_rs.get(xs.rs),
-            "wsel_by_profile": {
-                p["name"]: (p["wsel"][i] if i < len(p["wsel"]) else None)
-                for p in selected_payload
-            },
+            "length_channel": length_channel,
+            "cumdist": cumdist_i,
+            "minchel": minchel,
+            "wsel": main_wsel,
+            "label_letter": label_letter,
+            "label_text": label_text,
+            "wsel_by_profile": wsel_by_profile,
         }
         out_xs.append(row)
 
     out_struct = []
-    for s in reach.structures:
-        tlow = (s.type or "").lower()
-        if not s.rs and "connection" in tlow:
-            continue
-        cum_s = _structure_cumdist(s.rs, xs_list, cumdist)
-        minchel = s.minchel
-        if minchel is None:
-            nearest = _nearest_xs(s.rs, xs_list)
-            if nearest is not None:
-                minchel = nearest.minchel
-        out_struct.append({
-            "river": s.river, "reach": s.reach, "rs": s.rs, "type": s.type,
-            "name": s.name, "weir_width": s.weir_width,
-            "low_chord": s.low_chord, "high_chord": s.high_chord,
-            "minchel": minchel, "cumdist": cum_s,
-        })
+    if db is not None and working_struct_rows:
+        for row in working_struct_rows:
+            out_struct.append({
+                "river": row.river,
+                "reach": row.reach,
+                "rs": row.rs,
+                "type": row.struc,
+                "name": row.label_text or row.struc or row.rs,
+                "weir_width": row.length_chnl,
+                "low_chord": row.low_chord,
+                "high_chord": row.high_chord,
+                "minchel": row.minchel,
+                "cumdist": row.cumdist,
+            })
+    else:
+        for s in reach.structures:
+            tlow = (s.type or "").lower()
+            if not s.rs and "connection" in tlow:
+                continue
+            working_structs = working_struct_by_rs.get(s.rs, [])
+            struct_row = None
+            if working_structs:
+                struct_row = working_structs[0]
+            cum_s = _structure_cumdist(s.rs, xs_list, cumdist)
+            if struct_row is not None and struct_row.cumdist is not None:
+                cum_s = struct_row.cumdist
+            minchel = s.minchel
+            if struct_row is not None and struct_row.minchel is not None:
+                minchel = struct_row.minchel
+            elif minchel is None:
+                nearest = _nearest_xs(s.rs, xs_list)
+                if nearest is not None:
+                    minchel = nearest.minchel
+            out_struct.append({
+                "river": s.river, "reach": s.reach, "rs": s.rs, "type": s.type,
+                "name": s.name, "weir_width": s.weir_width,
+                "low_chord": s.low_chord, "high_chord": s.high_chord,
+                "minchel": minchel, "cumdist": cum_s,
+            })
     return {
         "session_id": sid,
         "reach": {"river": reach.river, "reach": reach.reach},
