@@ -76,9 +76,13 @@ def panel_coverage(
     page_size: str = "11x17",
     custom_page: tuple[float, float] | None = None,
 ) -> float:
-    """Return the station coverage of one printable panel in feet."""
-    _pw, _ph, usable_width_in, _uh = plot_usable_size(page_size, custom_page)
-    return float(h_scale) * usable_width_in
+    """Return FEMA panel station coverage in feet."""
+    return float(h_scale) * 13.0
+
+
+def vertical_panel_coverage(v_scale: float) -> float:
+    """Return FEMA panel elevation coverage in feet."""
+    return float(v_scale) * 9.0
 
 
 @dataclass
@@ -184,6 +188,8 @@ class WorkHeader:
     page_size: str = "11x17"
     table_name: str = "Table 24"
     table_title: str = "FLOODWAY DATA"
+    revision_start_station: float | None = None
+    revision_end_station: float | None = None
 
 
 @dataclass
@@ -211,6 +217,18 @@ class RasplotDatabase:
             "frequencies": self.frequencies,
             "use_node_names": self.use_node_names,
         }
+
+
+def model_station_extent(rows: list[WorkingRow]) -> tuple[float, float] | None:
+    """Return the usable model station range from Working cross sections."""
+    stations = [
+        float(row.cumdist)
+        for row in rows
+        if row.kind == "xs" and math.isfinite(float(row.cumdist))
+    ]
+    if not stations:
+        return None
+    return min(stations), max(stations)
 
 
 def _interpolate_station_elevation(pairs: list[tuple[float, float]], station: float) -> Optional[float]:
@@ -648,13 +666,12 @@ def auto_panels(
     custom_page: tuple[float, float] | None = None,
     single_panel: bool = False,
     fit_to_page: bool = False,
+    station_range: tuple[float, float] | None = None,
 ) -> list[PanelDef]:
-    """Build panels spanning the reach length at the given horizontal scale.
+    """Build fixed-size FEMA panels using profile bounds for initial origins.
 
-    Panel station span = h_scale (ft/in) × usable plot width (in).
-    Usable width matches the DXF/PDF plot area (page − L/R margins), not an
-    ad-hoc reduced width — large sheets (ANSI D, A1) correctly stay one panel
-    when the reach fits at the chosen H scale.
+    Each panel is 13 horizontal boxes by 9 vertical boxes. Profile bounds choose
+    the first origin only; panel edges may extend beyond the model data.
 
     single_panel: force one panel covering the full station range (may exceed
         paper length at the given H scale — used only when explicitly requested).
@@ -666,6 +683,12 @@ def auto_panels(
         return []
     cum = [r.cumdist for r in xs]
     x_min, x_max = float(min(cum)), float(max(cum))
+    if station_range is not None:
+        requested_min, requested_max = map(float, station_range)
+        x_min = max(x_min, requested_min)
+        x_max = min(x_max, requested_max)
+        if x_min >= x_max:
+            return []
     reach_len = max(1.0, x_max - x_min)
     inv = [r.minchel for r in xs if r.minchel is not None]
     wsel_vals: list[float] = []
@@ -676,59 +699,47 @@ def auto_panels(
     y_min = (min(inv) if inv else 0.0) - elev_pad
     y_max = (max(wsel_vals) if wsel_vals else y_min + 10.0) + elev_pad
 
-    _pw, _ph, uw_default, uh = plot_usable_size(page_size, custom_page)
-    uw = float(usable_width_in) if usable_width_in is not None else uw_default
-
     hs = float(h_scale)
     vs = float(v_scale)
 
     if fit_to_page or single_panel:
         if fit_to_page:
-            # H scale so full reach = one usable width (round up to whole ft/in)
-            hs = max(1.0, math.ceil(reach_len / uw))
-            # Optionally fit vertical too if elevation span exceeds page height
+            # H scale so the full reach fits in one fixed-width FEMA panel.
+            hs = max(1.0, math.ceil(reach_len / 13.0))
             elev_span = max(1.0, y_max - y_min)
-            vs_needed = elev_span / uh
+            vs_needed = elev_span / 9.0
             if vs_needed > vs:
                 vs = max(1.0, math.ceil(vs_needed * 10) / 10.0)
+        elif single_panel:
+            hs = max(hs, math.ceil(reach_len / 13.0))
         return [PanelDef(
             panel=1,
             start_station=x_min,
-            end_station=x_max if x_max > x_min else x_min + 1.0,
+            end_station=x_min + panel_coverage(hs),
             start_elevation=y_min,
-            end_elevation=y_max,
+            end_elevation=y_min + vertical_panel_coverage(vs),
             h_scale=hs,
             v_scale=vs,
         )]
 
-    span = panel_coverage(hs, page_size, custom_page)  # feet of station per panel
-    # Tiny overflow tolerance (0.5%) avoids a near-empty second panel when
-    # the reach is only a few feet longer than one page at the listed scale.
-    if reach_len <= span * 1.005:
-        return [PanelDef(
-            panel=1, start_station=x_min, end_station=x_max,
-            start_elevation=y_min, end_elevation=y_max,
-            h_scale=hs, v_scale=vs,
-        )]
-
+    span = panel_coverage(hs)
+    vertical_span = vertical_panel_coverage(vs)
     panels: list[PanelDef] = []
     s = x_min
     n = 1
     while s < x_max - 1e-6:
-        e = min(x_max, s + span)
+        e = s + span
         panels.append(PanelDef(
             panel=n, start_station=s, end_station=e,
-            start_elevation=y_min, end_elevation=y_max,
+            start_elevation=y_min, end_elevation=y_min + vertical_span,
             h_scale=hs, v_scale=vs,
         ))
         n += 1
-        if e >= x_max:
-            break
         s = e
     if not panels:
         panels.append(PanelDef(
-            panel=1, start_station=x_min, end_station=max(x_max, x_min + 1),
-            start_elevation=y_min, end_elevation=y_max,
+            panel=1, start_station=x_min, end_station=x_min + span,
+            start_elevation=y_min, end_elevation=y_min + vertical_span,
             h_scale=hs, v_scale=vs,
         ))
     return panels

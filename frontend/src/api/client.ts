@@ -69,6 +69,7 @@ export type GetProfileResponse = {
 export type ExportOptions = {
   format: "pdf" | "dxf";
   profile_names?: string[];
+  panel_numbers?: number[];
   page_size?: string;
   custom_page_w?: number;
   custom_page_h?: number;
@@ -104,6 +105,10 @@ export type PanelInput = {
   v_scale?: number;
 };
 
+export type PanelsResponse = {
+  panels: PanelInput[];
+};
+
 export type PanelsReplace = {
   panels: PanelInput[];
   auto: boolean;
@@ -119,6 +124,14 @@ export type AutoEndResponse = {
   page_size: string;
   usable_width_in: number;
   panel_coverage: number;
+};
+
+export type RevisionLimitsResponse = {
+  revision_start_station: number;
+  revision_end_station: number;
+  model_start_station: number;
+  model_end_station: number;
+  explicit: boolean;
 };
 
 export type AppSettings = {
@@ -161,7 +174,19 @@ export const api = {
   },
   getMap: (sid: string) => req<GeoJSON.FeatureCollection>(`/api/map/${sid}`),
   getDb: (sid: string) => req<any>(`/api/db/${sid}`),
-  getPanels: (sid: string) => req<any>(`/api/db/${sid}/panels`),
+  getPanels: (sid: string) => req<PanelsResponse>(`/api/db/${sid}/panels`),
+  getRevisionLimits: (sid: string) =>
+    req<RevisionLimitsResponse>(`/api/db/${sid}/revision-limits`),
+  putRevisionLimits: (sid: string, start: number, end: number) =>
+    req<RevisionLimitsResponse>(`/api/db/${sid}/revision-limits`, {
+      method: "PUT",
+      body: JSON.stringify({
+        revision_start_station: start,
+        revision_end_station: end,
+      }),
+    }),
+  clearRevisionLimits: (sid: string) =>
+    req<RevisionLimitsResponse>(`/api/db/${sid}/revision-limits`, { method: "DELETE" }),
   getAutoEnd: (sid: string, startStation: number) =>
     req<AutoEndResponse>(`/api/db/${sid}/auto-end?start_station=${encodeURIComponent(String(startStation))}`),
   patchWorking: (sid: string, patches: any[]) =>

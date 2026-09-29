@@ -93,6 +93,66 @@ def _layer(doc, name: str, color: int = 7, linetype: str = "Continuous") -> None
         doc.layers.add(name, color=color, linetype=linetype)
 
 
+def _station_intervals_intersect(
+    first_start: float,
+    first_end: float,
+    second_start: float,
+    second_end: float,
+) -> bool:
+    first_min, first_max = sorted((first_start, first_end))
+    second_min, second_max = sorted((second_start, second_end))
+    return first_max >= second_min and first_min <= second_max
+
+
+def clip_station_elevation_polyline(
+    points: Iterable[tuple[float, float]],
+    clip_start: float,
+    clip_end: float,
+) -> list[tuple[float, float]]:
+    """Clip station/elevation segments without extrapolating or changing order."""
+    source = list(points)
+    if not source or clip_start >= clip_end:
+        return []
+    if len(source) == 1:
+        return source[:] if clip_start <= source[0][0] <= clip_end else []
+
+    clipped: list[tuple[float, float]] = []
+
+    def append_unique(point: tuple[float, float]) -> None:
+        if clipped and math.isclose(clipped[-1][0], point[0], rel_tol=0.0, abs_tol=1e-12) \
+                and math.isclose(clipped[-1][1], point[1], rel_tol=0.0, abs_tol=1e-12):
+            return
+        clipped.append(point)
+
+    for (x0, y0), (x1, y1) in zip(source, source[1:]):
+        dx = x1 - x0
+        if math.isclose(dx, 0.0, rel_tol=0.0, abs_tol=1e-12):
+            if clip_start <= x0 <= clip_end:
+                append_unique((x0, y0))
+                append_unique((x1, y1))
+            continue
+
+        t_start = (clip_start - x0) / dx
+        t_end = (clip_end - x0) / dx
+        t0 = max(0.0, min(t_start, t_end))
+        t1 = min(1.0, max(t_start, t_end))
+        if t0 > t1:
+            continue
+
+        def interpolate(t: float) -> tuple[float, float]:
+            station = x0 + t * dx
+            if math.isclose(station, clip_start, rel_tol=0.0, abs_tol=1e-9):
+                station = clip_start
+            elif math.isclose(station, clip_end, rel_tol=0.0, abs_tol=1e-9):
+                station = clip_end
+            return station, y0 + t * (y1 - y0)
+
+        append_unique(interpolate(t0))
+        append_unique(interpolate(t1))
+
+    return clipped
+
+
 def export_dxf(
     out_path: str | Path,
     db: RasplotDatabase,
@@ -105,6 +165,7 @@ def export_dxf(
     include_grid: bool = True,
     include_title_block: bool = True,
     custom_page: tuple[float, float] | None = None,
+    revision_interval: tuple[float, float] | None = None,
 ) -> str:
     """Write a multi-panel FIS flood profile DXF and return the path."""
     out_path = Path(out_path)
@@ -157,6 +218,15 @@ def export_dxf(
 
     xs_rows = [r for r in db.working if r.kind == "xs"]
     struct_rows = [r for r in db.working if r.kind == "struct"]
+    invert_source = [
+        (r.cumdist, r.minchel) for r in xs_rows if r.minchel is not None
+    ]
+    culvert_pairs: dict[str, dict[str, WorkingRow]] = {}
+    for row in struct_rows:
+        structure_name = (row.struc or "").upper()
+        if structure_name not in {"CULVERT-DN", "CULVERT-UP"}:
+            continue
+        culvert_pairs.setdefault(str(row.rs), {})[structure_name] = row
 
     # Lay out panels horizontally with 0.5" gap between
     gap = 0.5
@@ -181,6 +251,12 @@ def export_dxf(
         def sy(elev: float) -> float:
             return ay0 + (elev - panel.start_elevation) / pv
 
+        clip_start = panel.start_station
+        clip_end = panel.end_station
+        if revision_interval is not None:
+            clip_start = max(clip_start, revision_interval[0])
+            clip_end = min(clip_end, revision_interval[1])
+
         # Border
         msp.add_lwpolyline(
             [(ox, oy), (ox + page_w, oy), (ox + page_w, oy + page_h), (ox, oy + page_h), (ox, oy)],
@@ -196,24 +272,28 @@ def export_dxf(
             _draw_grid(msp, ax0, ay0, plot_w, plot_h, panel, ph, pv)
 
         # Invert
-        inv_pts = []
-        for r in xs_rows:
-            if r.minchel is None:
-                continue
-            if panel.start_station - 1 <= r.cumdist <= panel.end_station + 1:
-                inv_pts.append((sx(r.cumdist), sy(r.minchel)))
+        clipped_invert = clip_station_elevation_polyline(invert_source, clip_start, clip_end)
+        inv_pts = [
+            (sx(station), sy(elevation))
+            for station, elevation in clipped_invert
+        ]
         if len(inv_pts) >= 2:
             msp.add_lwpolyline(inv_pts, dxfattribs={"layer": "INVERT", "lineweight": 25})
 
         # Profiles
         for pmeta in selected:
-            pts = []
-            for r in xs_rows:
-                v = r.profiles.get(pmeta.name)
-                if v is None:
-                    continue
-                if panel.start_station - 1 <= r.cumdist <= panel.end_station + 1:
-                    pts.append((sx(r.cumdist), sy(v)))
+            profile_source = [
+                (r.cumdist, value)
+                for r in xs_rows
+                if (value := r.profiles.get(pmeta.name)) is not None
+            ]
+            clipped_profile = clip_station_elevation_polyline(
+                profile_source, clip_start, clip_end
+            )
+            pts = [
+                (sx(station), sy(elevation))
+                for station, elevation in clipped_profile
+            ]
             if len(pts) >= 2:
                 layer = pmeta.layer or f"PROF_{pmeta.name}"
                 lw = int((pmeta.lineweight or 0.3) * 100)
@@ -221,15 +301,24 @@ def export_dxf(
 
         # Structures
         for s in struct_rows:
-            if not (panel.start_station - 50 <= s.cumdist <= panel.end_station + 50):
-                continue
-            _draw_structure(msp, s, sx, sy)
+            structure_name = (s.struc or "").upper()
+            pair = culvert_pairs.get(str(s.rs))
+            if structure_name in {"CULVERT-DN", "CULVERT-UP"} and pair is not None \
+                    and (dn := pair.get("CULVERT-DN")) is not None \
+                    and (up := pair.get("CULVERT-UP")) is not None:
+                visible = _station_intervals_intersect(
+                    dn.cumdist, up.cumdist, clip_start, clip_end,
+                )
+            else:
+                visible = clip_start <= s.cumdist <= clip_end
+            if visible:
+                _draw_structure(msp, s, sx, sy)
 
         # XS labels
         for r in xs_rows:
             if not r.label_letter:
                 continue
-            if not (panel.start_station <= r.cumdist <= panel.end_station):
+            if not (clip_start <= r.cumdist <= clip_end):
                 continue
             y = r.minchel if r.minchel is not None else panel.start_elevation
             # prefer sit above primary profile
@@ -251,7 +340,7 @@ def export_dxf(
 
         # Landmarks
         for lm in db.landmarks:
-            if panel.start_station <= lm.distance <= panel.end_station:
+            if clip_start <= lm.distance <= clip_end:
                 rot = 90.0 if (lm.orientation or "").lower().startswith("v") else 0.0
                 msp.add_text(
                     lm.text,
@@ -307,7 +396,6 @@ def _draw_grid(msp, ax0, ay0, plot_w, plot_h, panel, ph, pv) -> None:
     for j in range(n_h + 1):
         y = ay0 + j
         msp.add_line((ax0, y), (ax0 + plot_w, y), dxfattribs={"layer": "GRID"})
-
 
 def _draw_structure(msp, s: WorkingRow, sx, sy) -> None:
     t = (s.struc or "").upper()

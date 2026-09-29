@@ -19,7 +19,7 @@ from ..core.rasplot_db import (
     RasplotDatabase, WorkHeader, WorkingRow, Landmark, PanelDef, ProfileMeta,
     build_db_from_plan, auto_letter, apply_node_names, reletter_from,
     recalc_cumdist, fix_drawdowns, auto_panels, panel_coverage,
-    PAGE_SIZES, plot_usable_size, DEFAULT_FREQUENCIES,
+    PAGE_SIZES, plot_usable_size, DEFAULT_FREQUENCIES, model_station_extent,
 )
 
 router = APIRouter(prefix="/api")
@@ -633,6 +633,11 @@ class HeaderUpdate(BaseModel):
     table_title: str | None = None
 
 
+class RevisionLimitsUpdate(BaseModel):
+    revision_start_station: float
+    revision_end_station: float
+
+
 class ProfileMetaUpdate(BaseModel):
     name: str
     frequency: str | None = None
@@ -782,6 +787,61 @@ def put_header(sid: str, req: HeaderUpdate) -> dict:
     return asdict(h)
 
 
+def _revision_limits_response(db: RasplotDatabase) -> dict:
+    extent = model_station_extent(db.working)
+    if extent is None:
+        raise HTTPException(400, "No model station data is available.")
+    model_start, model_end = extent
+    explicit = (
+        db.header.revision_start_station is not None
+        and db.header.revision_end_station is not None
+    )
+    return {
+        "revision_start_station": (
+            db.header.revision_start_station if explicit else model_start
+        ),
+        "revision_end_station": (
+            db.header.revision_end_station if explicit else model_end
+        ),
+        "model_start_station": model_start,
+        "model_end_station": model_end,
+        "explicit": explicit,
+    }
+
+
+@router.get("/db/{sid}/revision-limits")
+def get_revision_limits(sid: str) -> dict:
+    return _revision_limits_response(_session_db(sid))
+
+
+@router.put("/db/{sid}/revision-limits")
+def put_revision_limits(sid: str, req: RevisionLimitsUpdate) -> dict:
+    db = _session_db(sid)
+    extent = model_station_extent(db.working)
+    if extent is None:
+        raise HTTPException(400, "No model station data is available.")
+    model_start, model_end = extent
+    start = float(req.revision_start_station)
+    end = float(req.revision_end_station)
+    if not math.isfinite(start) or not math.isfinite(end):
+        raise HTTPException(400, "Revision limits must be finite numbers.")
+    if start >= end:
+        raise HTTPException(400, "Revision start station must be less than end station.")
+    if start < model_start or end > model_end:
+        raise HTTPException(400, "Revision limits must fall within the model extent.")
+    db.header.revision_start_station = start
+    db.header.revision_end_station = end
+    return _revision_limits_response(db)
+
+
+@router.delete("/db/{sid}/revision-limits")
+def delete_revision_limits(sid: str) -> dict:
+    db = _session_db(sid)
+    db.header.revision_start_station = None
+    db.header.revision_end_station = None
+    return _revision_limits_response(db)
+
+
 @router.get("/db/{sid}/profiles")
 def get_profiles_meta(sid: str) -> dict:
     from dataclasses import asdict
@@ -900,7 +960,16 @@ def put_panels(sid: str, req: PanelsReplace) -> dict:
         db.header.h_scale = hs
         db.header.v_scale = vs
         db.header.page_size = ps
-        db.panels = auto_panels(db.working, h_scale=hs, v_scale=vs, page_size=ps)
+        station_range = None
+        if db.header.revision_start_station is not None and db.header.revision_end_station is not None:
+            station_range = (
+                float(db.header.revision_start_station),
+                float(db.header.revision_end_station),
+            )
+        db.panels = auto_panels(
+            db.working, h_scale=hs, v_scale=vs, page_size=ps,
+            station_range=station_range,
+        )
     else:
         db.panels = [
             PanelDef(**p.model_dump()) for p in req.panels

@@ -11,6 +11,8 @@ type Props = {
   endStation?: number | null;
   startElevation?: number | null;
   endElevation?: number | null;
+  revisionStart?: number | null;
+  revisionEnd?: number | null;
 };
 
 const PROFILE_COLORS = [
@@ -45,6 +47,8 @@ export default function ProfileChart({
   endStation = null,
   startElevation = null,
   endElevation = null,
+  revisionStart = null,
+  revisionEnd = null,
 }: Props) {
   const xs = profile.cross_sections;
   const cumdist = xs.map((c) => c.cumdist);
@@ -83,6 +87,30 @@ export default function ProfileChart({
 
   const shapes: any[] = [];
   const annotations: any[] = [];
+
+  if (revisionStart != null && revisionEnd != null && revisionStart < revisionEnd) {
+    shapes.push({
+      type: "rect",
+      x0: revisionStart,
+      x1: revisionEnd,
+      y0: 0,
+      y1: 1,
+      yref: "paper",
+      fillcolor: "rgba(25, 107, 214, 0.08)",
+      line: { color: "#196bd6", width: 1.5, dash: "dash" },
+      layer: "below",
+    });
+    annotations.push({
+      x: revisionStart,
+      y: 1,
+      yref: "paper",
+      text: "Active revision",
+      showarrow: false,
+      xanchor: "left",
+      yanchor: "bottom",
+      font: { size: 10, color: "#196bd6" },
+    });
+  }
 
   // Letter labels (above invert or WSEL)
   for (const c of xs) {

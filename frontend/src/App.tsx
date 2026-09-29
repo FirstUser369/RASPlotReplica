@@ -9,7 +9,8 @@ import ReachMergePanel from "./components/ReachMergePanel";
 import LandmarksPanel from "./components/LandmarksPanel";
 import ProfileMappingDialog from "./components/ProfileMappingDialog";
 import PanelSetupDialog from "./components/PanelSetupDialog";
-import { api, type GetProfileResponse, type ProfileMeta } from "./api/client";
+import RevisionLimits from "./components/RevisionLimits";
+import { api, type GetProfileResponse, type ProfileMeta, type RevisionLimitsResponse } from "./api/client";
 
 export type Session = {
   session_id: string;
@@ -77,6 +78,8 @@ export default function App() {
   const [mergeOrder, setMergeOrder] = useState<number[]>([]);
   const [junctions, setJunctions] = useState<number[]>([]);
   const [sideTab, setSideTab] = useState<"table" | "landmarks" | "merge">("table");
+  const [revisionRefreshKey, setRevisionRefreshKey] = useState(0);
+  const [revisionLimits, setRevisionLimits] = useState<RevisionLimitsResponse | null>(null);
 
   useEffect(() => {
     api.getSettings().then((s) => {
@@ -173,6 +176,7 @@ export default function App() {
       setMergeOrder(s.reaches.map((_, i) => i));
       setJunctions(s.reaches.slice(1).map(() => 0));
       await loadProfile(s.session_id, 0, init, false, true);
+      setRevisionRefreshKey((value) => value + 1);
       setGeojson(await api.getMap(s.session_id));
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -198,6 +202,7 @@ export default function App() {
     try {
       await api.selectReach(session.session_id, { reach_idx: idx });
       await loadProfile(session.session_id, idx, selectedProfiles, true);
+      setRevisionRefreshKey((value) => value + 1);
     } catch (e: any) {
       setError(String(e.message ?? e));
     } finally {
@@ -490,6 +495,7 @@ export default function App() {
       // after multi-merge, profile endpoint still wants reach_idx 0 of synthetic
       setReachIdx(0);
       await loadProfile(session.session_id, 0, selectedProfiles, false, true);
+      setRevisionRefreshKey((value) => value + 1);
       setGeojson(await api.getMap(session.session_id));
     } catch (e: any) {
       setError(String(e.message ?? e));
@@ -543,6 +549,11 @@ export default function App() {
             onStartElevationCommit={commitStartElevation}
             onEndElevationCommit={commitEndElevation}
           />
+          <RevisionLimits
+            sessionId={session.session_id}
+            refreshKey={revisionRefreshKey}
+            onChange={setRevisionLimits}
+          />
           <div className="main">
             <div className="main__chart">
               {profileData && (
@@ -556,6 +567,8 @@ export default function App() {
                     endStation={endStation}
                     startElevation={startElevation}
                     endElevation={endElevation}
+                    revisionStart={revisionLimits?.revision_start_station ?? null}
+                    revisionEnd={revisionLimits?.revision_end_station ?? null}
                 />
               )}
               <div className="chart-hint">Shift+click a point to add a landmark</div>
@@ -678,6 +691,8 @@ export default function App() {
             open={panelSetupOpen}
             sessionId={session.session_id}
             profile={profileData}
+            revisionStart={revisionLimits?.revision_start_station ?? null}
+            revisionEnd={revisionLimits?.revision_end_station ?? null}
             onClose={() => setPanelSetupOpen(false)}
           />
           <ExportDialog

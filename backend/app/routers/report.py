@@ -22,9 +22,9 @@ from pydantic import BaseModel, Field
 from ..core.merge import compute_cumdist, MergedReach
 from ..core.rasplot_db import (
     PAGE_SIZES, RasplotDatabase, WorkHeader, PanelDef, ProfileMeta,
-    distance_unit_factor, auto_panels,
+    distance_unit_factor, auto_panels, model_station_extent,
 )
-from ..core.dxf_export import export_dxf
+from ..core.dxf_export import export_dxf, clip_station_elevation_polyline
 from ..core.fdt import render_fdt_pdf, STANDARD_FOOTNOTES
 from ..core.firm_export import export_firm_shapefiles, zip_firm_export
 from .hecras_api import _SESSIONS, _session_db
@@ -47,6 +47,7 @@ def render_profile_pdf_from_db(
     h_scale: float | None = None,
     v_scale: float | None = None,
     custom_page: tuple[float, float] | None = None,
+    revision_interval: tuple[float, float] | None = None,
 ) -> str:
     header = db.header
     page_size = page_size or header.page_size or "11x17"
@@ -77,12 +78,33 @@ def render_profile_pdf_from_db(
     try:
         for i, panel in enumerate(panels):
             fig, ax = plt.subplots(figsize=(page_w, page_h))
+            clip_start = panel.start_station
+            clip_end = panel.end_station
+            if revision_interval is not None:
+                clip_start = max(clip_start, revision_interval[0])
+                clip_end = min(clip_end, revision_interval[1])
             # invert
-            ax.plot(cumdist, inv, color="black", linewidth=0.9, label="STREAM BED")
+            clipped_invert = clip_station_elevation_polyline(
+                [(x, y) for x, y in zip(cumdist, inv) if y == y], clip_start, clip_end,
+            )
+            ax.plot(
+                [point[0] for point in clipped_invert],
+                [point[1] for point in clipped_invert],
+                color="black", linewidth=0.9, label="STREAM BED",
+            )
             legend_handles = [Line2D([0], [0], color="black", lw=0.9, label="STREAM BED")]
             for pmeta in selected:
-                y = [r.profiles.get(pmeta.name) for r in xs]
-                ax.plot(cumdist, y, color=pmeta.color or "#196bd6",
+                profile_points = [
+                    (r.cumdist, value) for r in xs
+                    if (value := r.profiles.get(pmeta.name)) is not None
+                ]
+                clipped_profile = clip_station_elevation_polyline(
+                    profile_points, clip_start, clip_end,
+                )
+                ax.plot(
+                        [point[0] for point in clipped_profile],
+                        [point[1] for point in clipped_profile],
+                        color=pmeta.color or "#196bd6",
                         linewidth=(pmeta.lineweight or 0.3) * 4,
                         linestyle=_mpl_ls(pmeta.linetype),
                         label=pmeta.legend_text or pmeta.name)
@@ -95,7 +117,7 @@ def render_profile_pdf_from_db(
 
             panel_w = max(1.0, panel.end_station - panel.start_station)
             for s in structs:
-                if not (panel.start_station - 50 <= s.cumdist <= panel.end_station + 50):
+                if not (clip_start <= s.cumdist <= clip_end):
                     continue
                 target = s.cumdist
                 y_bot = s.minchel if s.minchel is not None else panel.start_elevation
@@ -119,7 +141,7 @@ def render_profile_pdf_from_db(
             for r in xs:
                 if not r.label_letter:
                     continue
-                if not (panel.start_station <= r.cumdist <= panel.end_station):
+                if not (clip_start <= r.cumdist <= clip_end):
                     continue
                 y = None
                 if selected:
@@ -134,7 +156,7 @@ def render_profile_pdf_from_db(
 
             # landmarks
             for lm in db.landmarks:
-                if panel.start_station <= lm.distance <= panel.end_station:
+                if clip_start <= lm.distance <= clip_end:
                     rot = 90 if (lm.orientation or "").lower().startswith("v") else 0
                     ax.text(lm.distance, lm.elevation, lm.text, rotation=rot,
                             fontsize=7, ha="left", va="bottom")
@@ -204,6 +226,7 @@ class ExportOptions(BaseModel):
     session_id: str
     format: str = "pdf"                 # pdf | dxf
     profile_names: list[str] | None = None
+    panel_numbers: list[int] | None = None
     page_size: str | None = None
     custom_page_w: float | None = None
     custom_page_h: float | None = None
@@ -250,7 +273,7 @@ class PdfMergeRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
-def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> None:
+def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> list[PanelDef]:
     h = db.header
     if req.stream_name is not None:
         h.stream_name = req.stream_name
@@ -283,9 +306,34 @@ def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> None:
     if req.custom_page_w and req.custom_page_h:
         custom = (req.custom_page_w, req.custom_page_h)
 
-    # Recompute panels whenever scale/page/fit options drive the export
-    if req.use_current_view or req.fit_to_one_panel or req.single_panel:
-        panels = auto_panels(
+    if req.panel_numbers is not None:
+        if not req.panel_numbers:
+            raise HTTPException(400, "At least one saved panel must be selected.")
+        if len(set(req.panel_numbers)) != len(req.panel_numbers):
+            raise HTTPException(400, "Panel selection contains duplicate identifiers.")
+        selected_numbers = set(req.panel_numbers)
+        available_numbers = {panel.panel for panel in db.panels}
+        invalid_numbers = sorted(selected_numbers - available_numbers)
+        if invalid_numbers:
+            invalid = ", ".join(str(number) for number in invalid_numbers)
+            raise HTTPException(400, f"Unknown saved panel identifier(s): {invalid}")
+        selected_panels = [panel for panel in db.panels if panel.panel in selected_numbers]
+        revision_start, revision_end = _resolved_revision_interval(db)
+        outside = [
+            panel.panel for panel in selected_panels
+            if panel.end_station <= revision_start or panel.start_station >= revision_end
+        ]
+        if outside:
+            invalid = ", ".join(str(number) for number in outside)
+            raise HTTPException(
+                400,
+                f"Selected panel(s) {invalid} do not overlap the active revision range. Update Panel Setup first.",
+            )
+        return selected_panels
+
+    # Generate panels for this artifact without replacing the saved session panels.
+    if req.use_current_view or req.fit_to_one_panel or req.single_panel or not db.panels:
+        return auto_panels(
             db.working,
             h_scale=h.h_scale,
             v_scale=h.v_scale,
@@ -293,11 +341,9 @@ def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> None:
             custom_page=custom,
             single_panel=req.single_panel,
             fit_to_page=req.fit_to_one_panel,
+            station_range=_resolved_revision_interval(db),
         )
-        db.panels = panels
-        if panels:
-            h.h_scale = panels[0].h_scale
-            h.v_scale = panels[0].v_scale
+    return list(db.panels)
 
 
 def _cache_dir(sid: str) -> str:
@@ -306,13 +352,21 @@ def _cache_dir(sid: str) -> str:
     return d
 
 
+def _resolved_revision_interval(db: RasplotDatabase) -> tuple[float, float] | None:
+    start = db.header.revision_start_station
+    end = db.header.revision_end_station
+    if start is not None and end is not None:
+        return float(start), float(end)
+    return model_station_extent(db.working)
+
+
 @router.post("/export")
 def export_profile(req: ExportOptions) -> dict:
     """Export current view to PDF or DXF with scale/style/page options."""
     if req.session_id not in _SESSIONS:
         raise HTTPException(404, "Unknown session")
     db = _session_db(req.session_id)
-    _apply_export_options(db, req)
+    export_panels = _apply_export_options(db, req)
 
     custom = None
     if req.custom_page_w and req.custom_page_h:
@@ -325,23 +379,25 @@ def export_profile(req: ExportOptions) -> dict:
         render_profile_pdf_from_db(
             out_path, db,
             profile_names=req.profile_names,
-            panels=db.panels,
+            panels=export_panels,
             page_size=db.header.page_size,
             h_scale=db.header.h_scale, v_scale=db.header.v_scale,
             custom_page=custom,
+            revision_interval=_resolved_revision_interval(db),
         )
     elif fmt == "dxf":
         out_path = os.path.join(out_dir, f"FIS_profile_{req.session_id}.dxf")
         export_dxf(
             out_path, db,
             profile_names=req.profile_names,
-            panels=db.panels,
+            panels=export_panels,
             page_size=db.header.page_size,
             h_scale=db.header.h_scale, v_scale=db.header.v_scale,
             dxf_version=req.dxf_version,
             include_grid=req.include_grid,
             include_title_block=req.include_title_block,
             custom_page=custom,
+            revision_interval=_resolved_revision_interval(db),
         )
     else:
         raise HTTPException(400, f"Unsupported format: {fmt}")
@@ -349,9 +405,9 @@ def export_profile(req: ExportOptions) -> dict:
         "path": out_path,
         "size_bytes": os.path.getsize(out_path),
         "format": fmt,
-        "panel_count": len(db.panels),
-        "h_scale": db.header.h_scale,
-        "v_scale": db.header.v_scale,
+        "panel_count": len(export_panels),
+        "h_scale": export_panels[0].h_scale if export_panels else db.header.h_scale,
+        "v_scale": export_panels[0].v_scale if export_panels else db.header.v_scale,
         "page_size": db.header.page_size,
     }
 

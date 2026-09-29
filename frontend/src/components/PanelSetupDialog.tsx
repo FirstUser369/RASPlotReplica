@@ -17,10 +17,14 @@ type Props = {
   open: boolean;
   sessionId: string;
   profile: GetProfileResponse | null;
+  revisionStart?: number | null;
+  revisionEnd?: number | null;
   onClose: () => void;
 };
 
-export default function PanelSetupDialog({ open, sessionId, profile, onClose }: Props) {
+export default function PanelSetupDialog({
+  open, sessionId, profile, revisionStart = null, revisionEnd = null, onClose,
+}: Props) {
   const [draftPanels, setDraftPanels] = useState<DraftPanel[]>([]);
   const [hScale, setHScale] = useState(500);
   const [vScale, setVScale] = useState(5);
@@ -31,7 +35,7 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
   const [fitVersion, setFitVersion] = useState(0);
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number | null>(null);
   const [dragState, setDragState] = useState<
-    | { kind: "station"; boundaryType: "outer-start" | "inner" | "outer-end"; boundaryIndex: number }
+    | { kind: "station"; panelIndex: number; field: "start_station" | "end_station" }
     | null
   >(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -205,14 +209,20 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
       return { x: stationToX(x), label: row.rs ?? "XS" };
     }).filter((p): p is { x: number; label: string } => p !== null);
 
-    // boundary values array: [P0.start, P0.end, P1.end, ..., Pn.end]
-    const boundaryValues: number[] = [draftPanels[0].start_station, ...draftPanels.map((p) => p.end_station)];
-    const majorStationBoundaries = boundaryValues.map((value, idx) => ({
-      kind: idx === 0 ? ("outer-start" as const) : idx === boundaryValues.length - 1 ? ("outer-end" as const) : ("inner" as const),
-      boundaryIndex: idx,
-      x: stationToX(value),
-      value,
-    }));
+    const panelBoundaries = draftPanels.flatMap((panel, panelIndex) => [
+      {
+        panelIndex,
+        field: "start_station" as const,
+        x: stationToX(Number(panel.start_station)),
+        value: Number(panel.start_station),
+      },
+      {
+        panelIndex,
+        field: "end_station" as const,
+        x: stationToX(Number(panel.end_station)),
+        value: Number(panel.end_station),
+      },
+    ]);
 
     return {
       bounds,
@@ -228,41 +238,9 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
       xToStation,
       elevationToY,
       yToElevation,
-      majorStationBoundaries,
-      boundaryValues,
+      panelBoundaries,
     };
   }, [draftPanels, fitVersion, profile]);
-
-  function applyStationBoundaryUpdate(
-    panels: DraftPanel[],
-    boundaryType: "outer-start" | "inner" | "outer-end",
-    panelIndex: number,
-    value: number,
-  ) {
-    const nextPanels = panels.map((panel) => ({ ...panel }));
-    const minWidth = 10;
-
-    if (boundaryType === "outer-start") {
-      const maxAllowed = nextPanels[0].end_station - minWidth;
-      nextPanels[0].start_station = Math.min(value, maxAllowed);
-      return nextPanels;
-    }
-
-    if (boundaryType === "outer-end") {
-      const minAllowed = Math.min(nextPanels[nextPanels.length - 1].end_station, nextPanels[nextPanels.length - 1].start_station + minWidth);
-      nextPanels[nextPanels.length - 1].end_station = Math.max(value, minAllowed);
-      return nextPanels;
-    }
-
-    const leftPanel = nextPanels[panelIndex];
-    const rightPanel = nextPanels[panelIndex + 1];
-    const minAllowed = leftPanel.start_station + minWidth;
-    const maxAllowed = rightPanel.end_station - minWidth;
-    const clamped = Math.min(Math.max(value, minAllowed), maxAllowed);
-    leftPanel.end_station = clamped;
-    rightPanel.start_station = clamped;
-    return nextPanels;
-  }
 
   function updatePanel(index: number, field: keyof DraftPanel, rawValue: string) {
     if (rawValue.trim() === "") return;
@@ -281,26 +259,14 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
 
       if (field === "start_station") {
         next[index].start_station = target;
-        if (index > 0) {
-          next[index - 1].end_station = target;
-        }
-        if (index < next.length - 1) {
-          const minAllowed = next[index].start_station + minWidth;
-          if (next[index].end_station < minAllowed) next[index].end_station = minAllowed;
-          next[index + 1].start_station = next[index].end_station;
-        }
         return next;
       }
 
       if (field === "end_station") {
         next[index].end_station = target;
-        if (index < next.length - 1) {
-          next[index + 1].start_station = target;
-        }
         const minAllowed = next[index].start_station + minWidth;
         if (next[index].end_station < minAllowed) {
           next[index].end_station = minAllowed;
-          if (index < next.length - 1) next[index + 1].start_station = minAllowed;
         }
         return next;
       }
@@ -327,6 +293,10 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
       }
       if (panel.end_elevation <= panel.start_elevation) {
         return `Panel ${panel.panel}: Ending Elevation must be greater than Starting Elevation.`;
+      }
+      if (revisionStart != null && revisionEnd != null
+          && (panel.end_station <= revisionStart || panel.start_station >= revisionEnd)) {
+        return `Panel ${panel.panel} does not overlap the active revision range.`;
       }
     }
 
@@ -450,15 +420,11 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
   }
 
   // Pointer drag helpers using pointer capture and SVG coordinate transforms
-  function getBoundaryValuesFromPanels(panels: DraftPanel[]) {
-    return [panels[0].start_station, ...panels.map((p) => p.end_station)];
-  }
-
-  function handleBoundaryPointerDown(e: any, boundaryIndex: number, kind: "outer-start" | "inner" | "outer-end") {
+  function handleBoundaryPointerDown(e: any, panelIndex: number, field: "start_station" | "end_station") {
     try {
       (e.currentTarget as Element).setPointerCapture((e.nativeEvent as PointerEvent).pointerId);
     } catch {}
-    setDragState({ kind: "station", boundaryType: kind, boundaryIndex });
+    setDragState({ kind: "station", panelIndex, field });
   }
 
   function handleSvgPointerMove(e: any) {
@@ -477,36 +443,16 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
 
     if (!dragState) return;
 
-    const bvals = getBoundaryValuesFromPanels(draftPanels);
-    const k = dragState.boundaryIndex;
+    const panel = draftPanels[dragState.panelIndex];
+    if (!panel) return;
     const minWidth = 10;
-    let minAllowed = -Infinity;
-    let maxAllowed = Infinity;
-
-    if (k === 0) {
-      minAllowed = preview.availableMinStation;
-      maxAllowed = (bvals[1] ?? preview.availableMaxStation) - minWidth;
-    } else if (k === bvals.length - 1) {
-      minAllowed = (bvals[k - 1] ?? preview.availableMinStation) + minWidth;
-      maxAllowed = preview.availableMaxStation;
-    } else {
-      minAllowed = (bvals[k - 1] ?? preview.availableMinStation) + minWidth;
-      maxAllowed = (bvals[k + 1] ?? preview.availableMaxStation) - minWidth;
-    }
-
-    const allowed = Math.min(Math.max(stationRaw, minAllowed), maxAllowed);
+    const allowed = dragState.field === "start_station"
+      ? Math.min(stationRaw, panel.end_station - minWidth)
+      : Math.max(stationRaw, panel.start_station + minWidth);
 
     setDraftPanels((prev) => {
       const next = prev.map((p) => ({ ...p }));
-      if (k === 0) {
-        next[0].start_station = allowed;
-      } else if (k === bvals.length - 1) {
-        next[next.length - 1].end_station = allowed;
-      } else {
-        const leftIdx = k - 1;
-        next[leftIdx].end_station = allowed;
-        next[leftIdx + 1].start_station = allowed;
-      }
+      next[dragState.panelIndex][dragState.field] = allowed;
       return next;
     });
   }
@@ -526,7 +472,14 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
     <div className="panel-setup-backdrop" onClick={onClose}>
       <div className="panel-setup-modal" onClick={(e) => e.stopPropagation()}>
         <div className="panel-setup-header">
-          <h3>PANEL SETUP</h3>
+          <div>
+            <h3>PANEL SETUP</h3>
+            {revisionStart != null && revisionEnd != null && (
+              <div className="hint">
+                Active revision: {formatDisplayNumber(revisionStart)} - {formatDisplayNumber(revisionEnd)} ft
+              </div>
+            )}
+          </div>
           <button type="button" className="panel-setup-close" onClick={onClose} aria-label="Close panel setup">×</button>
         </div>
 
@@ -625,6 +578,19 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
               >
                 <rect x="0" y="0" width="100" height="100" fill="#f6f7f8" />
 
+                {revisionStart != null && revisionEnd != null && (
+                  <rect
+                    x={preview.stationToX(revisionStart)}
+                    y={preview.plot.top}
+                    width={Math.max(0, preview.stationToX(revisionEnd) - preview.stationToX(revisionStart))}
+                    height={preview.plot.height}
+                    fill="rgba(25,107,214,0.08)"
+                    stroke="#196bd6"
+                    strokeWidth="0.35"
+                    strokeDasharray="1.5 1"
+                  />
+                )}
+
                 <g>
                   {preview.yTicks.map((tick) => (
                     <g key={`y-${tick.value}`}>
@@ -673,9 +639,9 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
                 </g>
 
                 <g>
-                  {preview.majorStationBoundaries.map((boundary) => (
+                  {preview.panelBoundaries.map((boundary) => (
                     <line
-                      key={`boundary-${boundary.kind}-${boundary.boundaryIndex}`}
+                      key={`boundary-${boundary.panelIndex}-${boundary.field}`}
                       x1={boundary.x}
                       x2={boundary.x}
                       y1={preview.plot.top}
@@ -685,7 +651,7 @@ export default function PanelSetupDialog({ open, sessionId, profile, onClose }: 
                       style={{ cursor: "ew-resize", shapeRendering: "crispEdges" }}
                       onPointerDown={(event) => {
                         event.preventDefault();
-                        handleBoundaryPointerDown(event, boundary.boundaryIndex, boundary.kind);
+                        handleBoundaryPointerDown(event, boundary.panelIndex, boundary.field);
                       }}
                     />
                   ))}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type ExportOptions } from "../api/client";
+import { api, type ExportOptions, type PanelInput, type RevisionLimitsResponse } from "../api/client";
 
 type Props = {
   open: boolean;
@@ -37,25 +37,58 @@ export default function ExportDialog({
   const [useView, setUseView] = useState(true);
   const [fitOne, setFitOne] = useState(true);
   const [lastInfo, setLastInfo] = useState<string>("");
+  const [savedPanels, setSavedPanels] = useState<PanelInput[]>([]);
+  const [selectedPanelNumbers, setSelectedPanelNumbers] = useState<number[]>([]);
+  const [panelsLoading, setPanelsLoading] = useState(false);
+  const [revisionLimits, setRevisionLimits] = useState<RevisionLimitsResponse | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    let active = true;
     api.getPageSizes().then((r) => {
+      if (!active) return;
       setSizes(r.sizes || {});
       setUnits(r.distance_units || ["Feet"]);
       setDxfVersions(r.dxf_versions || ["R2013"]);
     }).catch(() => {});
-  }, [open]);
+    api.getRevisionLimits(sessionId).then((response) => {
+      if (active) setRevisionLimits(response);
+    }).catch(() => {
+      if (active) setRevisionLimits(null);
+    });
+    setPanelsLoading(true);
+    api.getPanels(sessionId).then((response) => {
+      if (!active) return;
+      const panels = response.panels || [];
+      setSavedPanels(panels);
+      setSelectedPanelNumbers(panels.map((panel) => panel.panel));
+      setFitOne(panels.length === 0);
+      setUseView(panels.length === 0);
+    }).catch((error: any) => {
+      if (!active) return;
+      setSavedPanels([]);
+      setSelectedPanelNumbers([]);
+      onError(String(error.message ?? error));
+    }).finally(() => {
+      if (active) setPanelsLoading(false);
+    });
+    return () => { active = false; };
+  }, [open, sessionId]);
 
   if (!open) return null;
 
   async function doExport() {
+    if (savedPanels.length > 0 && selectedPanelNumbers.length === 0) {
+      onError("Select at least one saved panel to export.");
+      return;
+    }
     onBusy(true);
     onError(null);
     try {
       const opts: ExportOptions = {
         format,
         profile_names: selectedProfiles,
+        ...(savedPanels.length > 0 ? { panel_numbers: selectedPanelNumbers } : {}),
         page_size: pageSize,
         h_scale: hScale,
         v_scale: vScale,
@@ -90,6 +123,16 @@ export default function ExportDialog({
     } finally {
       onBusy(false);
     }
+  }
+
+  function togglePanel(panelNumber: number) {
+    setSelectedPanelNumbers((current) => current.includes(panelNumber)
+      ? current.filter((number) => number !== panelNumber)
+      : [...current, panelNumber]);
+  }
+
+  function panelValue(value: number) {
+    return Number(value).toLocaleString(undefined, { maximumFractionDigits: 3 });
   }
 
   async function doFdt() {
@@ -130,6 +173,13 @@ export default function ExportDialog({
         </header>
 
         <section className="form-grid">
+          <label>Export scope</label>
+          <div className="hint">
+            {revisionLimits
+              ? `Revision ${panelValue(revisionLimits.revision_start_station)} - ${panelValue(revisionLimits.revision_end_station)} ft · ${selectedProfiles.join(", ")}`
+              : selectedProfiles.join(", ")}
+          </div>
+
           <label>Format</label>
           <div className="row">
             <label><input type="radio" checked={format === "pdf"} onChange={() => setFormat("pdf")} /> PDF</label>
@@ -199,13 +249,41 @@ export default function ExportDialog({
 
           <label>Paneling</label>
           <div className="check-col">
+            {panelsLoading && <div className="hint">Loading saved panels...</div>}
+            {!panelsLoading && savedPanels.length > 0 && (
+              <>
+                <div className="row">
+                  <b>Saved panels</b>
+                  <button type="button" className="ghost"
+                    onClick={() => setSelectedPanelNumbers(savedPanels.map((panel) => panel.panel))}>
+                    Select all
+                  </button>
+                  <button type="button" className="ghost" onClick={() => setSelectedPanelNumbers([])}>
+                    Clear
+                  </button>
+                </div>
+                {savedPanels.map((panel) => (
+                  <label className="check" key={panel.panel}>
+                    <input type="checkbox"
+                      checked={selectedPanelNumbers.includes(panel.panel)}
+                      onChange={() => togglePanel(panel.panel)} />
+                    Panel {panel.panel}: stations {panelValue(panel.start_station)}-{panelValue(panel.end_station)},
+                    elevations {panelValue(panel.start_elevation)}-{panelValue(panel.end_elevation)}
+                  </label>
+                ))}
+                <div className="hint">
+                  Saved panel selection takes precedence over panel regeneration options.
+                </div>
+              </>
+            )}
             <label className="check">
-              <input type="checkbox" checked={fitOne} onChange={(e) => setFitOne(e.target.checked)} />
+              <input type="checkbox" checked={fitOne} onChange={(e) => setFitOne(e.target.checked)}
+                disabled={savedPanels.length > 0} />
               Fit entire reach on <b>one panel</b> (adjusts scale if needed)
             </label>
             <label className="check">
               <input type="checkbox" checked={useView} onChange={(e) => setUseView(e.target.checked)}
-                disabled={fitOne} />
+                disabled={fitOne || savedPanels.length > 0} />
               Rebuild panels from stated H/V scale × page plot width
             </label>
             {lastInfo && <div className="hint">{lastInfo}</div>}
@@ -217,7 +295,7 @@ export default function ExportDialog({
           <button className="ghost" onClick={doFirm}>FIRM shapefile ZIP</button>
           <span style={{ flex: 1 }} />
           <button className="ghost" onClick={onClose}>Cancel</button>
-          <button onClick={doExport}>Export {format.toUpperCase()}</button>
+          <button onClick={doExport} disabled={panelsLoading}>Export {format.toUpperCase()}</button>
         </footer>
       </div>
     </div>
