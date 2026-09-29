@@ -51,6 +51,18 @@ export type GetProfileResponse = {
     high_chord: number | null;
     minchel: number | null;
     cumdist?: number | null;
+    connected_us_rs?: string | null;
+    profile_data?: Array<[number, number]>;
+    hw_connectivity?: Array<[string, number]>;
+    tw_connectivity?: Array<[string, number]>;
+    lateral_hw_distance?: number | null;
+    lateral_tw_distance?: number | null;
+    connected_ds_rs?: string | null;
+    culvert_us_gap?: number | null;
+    culvert_barrel_length?: number | null;
+    culvert_ds_residual?: number | null;
+    structure_partition_valid?: boolean | null;
+    structure_partition_warning?: string | null;
   }>;
 };
 

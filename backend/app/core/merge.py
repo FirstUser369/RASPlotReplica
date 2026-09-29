@@ -125,11 +125,29 @@ def merge_reaches(
     )
 
 
+def compute_cumdist_from_lengths(
+    upstream_first_lengths: list[float],
+    start: float = 0.0,
+) -> list[float]:
+    """Return upstream-first CUMDIST values from upstream-owned reach lengths.
+
+    Each ordinary XS owns the channel length from itself to the next downstream
+    XS.  The downstream-most XS is the supplied origin and its length is not an
+    adjacent-XS interval.
+    """
+    if not upstream_first_lengths:
+        return []
+    out = [float(start)] * len(upstream_first_lengths)
+    running = float(start)
+    for i in range(len(upstream_first_lengths) - 2, -1, -1):
+        running += float(upstream_first_lengths[i] or 0.0)
+        out[i] = running
+    return out
+
+
 def compute_cumdist(r: ReachGeometry, start: float = 0.0) -> list[float]:
-    """Compute the CUMDIST column for a single reach (v3 page 24)."""
-    cum = start
-    out: list[float] = []
-    for xs in reversed(r.cross_sections):  # downstream-first
-        out.append(cum)
-        cum += xs.length_channel
-    return list(reversed(out))  # back to upstream-first matching r.cross_sections order
+    """Compute canonical ordinary-XS CUMDIST for one upstream-first reach."""
+    return compute_cumdist_from_lengths(
+        [xs.length_channel for xs in r.cross_sections],
+        start=start,
+    )

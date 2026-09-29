@@ -62,6 +62,10 @@ class Structure:
     culvert_us_distance: Optional[float] = None
     invert_us: Optional[float] = None
     invert_ds: Optional[float] = None
+    hw_connectivity: list[tuple[str, float]] = field(default_factory=list)
+    tw_connectivity: list[tuple[str, float]] = field(default_factory=list)
+    lateral_hw_distance: Optional[float] = None
+    lateral_tw_distance: Optional[float] = None
 
 
 @dataclass
@@ -276,6 +280,8 @@ class HdfReader:
                 culvert_group_attrs = None
                 if culvert_groups is not None and "Attributes" in culvert_groups:
                     culvert_group_attrs = culvert_groups["Attributes"][()]
+                connectivity = structs["User Defined Weir Connectivity"][()] \
+                    if "User Defined Weir Connectivity" in structs else None
                 fields = s_attrs.dtype.names
                 for i, rec in enumerate(s_attrs):
                     river = _s(rec["River"]) if "River" in fields else ""
@@ -306,11 +312,27 @@ class HdfReader:
                         low_chord=low_chord, high_chord=high_chord, minchel=minchel,
                         poly_points=polypts, profile_data=pdata, index=i,
                     )
+                    st.us_rs = _s(rec["US RS"]).strip() if "US RS" in fields else ""
+                    st.ds_rs = _s(rec["DS RS"]).strip() if "DS RS" in fields else ""
+                    st.lateral_hw_distance = _f(rec["LW HW Distance"]) \
+                        if "LW HW Distance" in fields else None
+                    st.lateral_tw_distance = _f(rec["LW TW Distance"]) \
+                        if "LW TW Distance" in fields else None
+                    if connectivity is not None:
+                        connection_fields = connectivity.dtype.names or ()
+                        for connection in connectivity:
+                            if "SID" not in connection_fields or int(connection["SID"]) != i:
+                                continue
+                            side = _s(connection["HW/TW"]) if "HW/TW" in connection_fields else ""
+                            connected_rs = _s(connection["RS/FP"]) if "RS/FP" in connection_fields else ""
+                            station = _f(connection["Station"]) if "Station" in connection_fields else None
+                            if not connected_rs or station is None:
+                                continue
+                            if side == "HW":
+                                st.hw_connectivity.append((connected_rs, station))
+                            elif side == "TW":
+                                st.tw_connectivity.append((connected_rs, station))
                     if stype.lower() == "culvert":
-                        st.us_rs = _s(rec["US RS"]) if "US RS" in fields else ""
-                        st.ds_rs = _s(rec["DS RS"]) if "DS RS" in fields else ""
-                        st.us_rs = st.us_rs.strip()
-                        st.ds_rs = st.ds_rs.strip()
                         if culvert_group_attrs is not None:
                             group_fields = culvert_group_attrs.dtype.names or ()
                             culvert_rec = None

@@ -8,7 +8,10 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import Any, Optional
+
+from .geometry_text_reader import parse_geometry_text_structures
 
 
 # Default FEMA flood frequencies (RASPLOT v3 §4.5)
@@ -96,6 +99,20 @@ class WorkingRow:
     profiles: dict[str, Optional[float]] = field(default_factory=dict)  # name -> WSEL
     kind: str = "xs"                # xs | struct
     source_xs_index: Optional[int] = None
+    weir_width: Optional[float] = None
+    connected_us_rs: str = ""
+    structure_profile_data: list[tuple[float, float]] = field(default_factory=list)
+    hw_connectivity: list[tuple[str, float]] = field(default_factory=list)
+    tw_connectivity: list[tuple[str, float]] = field(default_factory=list)
+    lateral_hw_distance: Optional[float] = None
+    lateral_tw_distance: Optional[float] = None
+    canonical_length_chnl: Optional[float] = None
+    connected_ds_rs: str = ""
+    culvert_us_gap: Optional[float] = None
+    culvert_barrel_length: Optional[float] = None
+    culvert_ds_residual: Optional[float] = None
+    structure_partition_valid: Optional[bool] = None
+    structure_partition_warning: str = ""
 
 
 @dataclass
@@ -196,6 +213,50 @@ class RasplotDatabase:
         }
 
 
+def _interpolate_station_elevation(pairs: list[tuple[float, float]], station: float) -> Optional[float]:
+    if not pairs:
+        return None
+    ordered = sorted(pairs, key=lambda item: item[0])
+    if len(ordered) == 1:
+        return ordered[0][1]
+    if station <= ordered[0][0]:
+        return ordered[0][1]
+    if station >= ordered[-1][0]:
+        return ordered[-1][1]
+    for i in range(len(ordered) - 1):
+        x0, y0 = ordered[i]
+        x1, y1 = ordered[i + 1]
+        if x0 <= station <= x1:
+            if x1 == x0:
+                return y1
+            t = (station - x0) / (x1 - x0)
+            return y0 + t * (y1 - y0)
+    return ordered[-1][1]
+
+
+def _geometry_text_structures_for_plan(plan: Any) -> dict[str, Any]:
+    plan_path = getattr(plan, "plan_path", None) or getattr(plan, "results_path", None) or getattr(plan, "plan_hdf_path", None)
+    if plan_path is None:
+        return {}
+    plan_file = Path(plan_path)
+    if not plan_file.exists():
+        return {}
+    candidates: list[Path] = []
+    base_stem = plan_file.stem.split(".")[0]
+    for candidate in plan_file.parent.glob(f"{base_stem}.g*"):
+        if candidate.is_file() and candidate.suffix.lower() not in {".hdf", ".bak"}:
+            candidates.append(candidate)
+    if not candidates:
+        return {}
+    by_rs: dict[str, Any] = {}
+    for candidate in sorted(candidates):
+        for entry in parse_geometry_text_structures(candidate):
+            rs_key = str(entry.rs).strip()
+            if rs_key:
+                by_rs[rs_key] = entry
+    return by_rs
+
+
 def _index_to_letter(i: int) -> str:
     if i < 0:
         return ""
@@ -242,13 +303,24 @@ def build_working_from_plan(
     xs_list = reach.cross_sections
     structs = structures if structures is not None else reach.structures
     profile_names = [p.name for p in plan.profiles]
+    geometry_text_structures = _geometry_text_structures_for_plan(plan)
 
     rows: list[WorkingRow] = []
     rid = 1
 
-    # Index structures by nearest XS index
+    # Laterals use their explicit connected US XS when available. Other
+    # structure types retain nearest-RS association pending separate validation.
     struct_at: dict[int, list] = {}
     for s in structs:
+        explicit_i = None
+        if (s.type or "").upper() == "LATERAL" and s.us_rs:
+            explicit_i = next(
+                (i for i, xs in enumerate(xs_list) if xs.rs == s.us_rs),
+                None,
+            )
+        if explicit_i is not None:
+            struct_at.setdefault(explicit_i, []).append(s)
+            continue
         try:
             srs = float(s.rs)
         except Exception:
@@ -275,34 +347,96 @@ def build_working_from_plan(
             id=rid, river=xs.river, reach=xs.reach, rs=xs.rs,
             length_chnl=row_length_chnl, cumdist=cumdist[i] if i < len(cumdist) else 0.0,
             minchel=xs.minchel, profiles=profs, kind="xs", source_xs_index=i,
+            canonical_length_chnl=xs.length_channel,
         ))
         rid += 1
         for s in struct_at.get(i, []):
             s_type = (s.type or "STRUCTURE").upper()
             if s_type == "CULVERT" and s.us_rs and s.ds_rs and s.culvert_length is not None and s.culvert_us_distance is not None and s.invert_us is not None and s.invert_ds is not None:
                 us_xs = next((x for x in xs_list if x.rs == s.us_rs), None)
-                if us_xs is not None and xs.rs == s.us_rs:
-                    row_length_chnl = s.culvert_us_distance
-                    rows[-1].length_chnl = row_length_chnl
-                dn_len = max(0.0, (us_xs.length_channel if us_xs is not None else 0.0) - (s.culvert_length or 0.0) - (s.culvert_us_distance or 0.0))
+                ds_xs = next((x for x in xs_list if x.rs == s.ds_rs), None)
+                canonical_interval = us_xs.length_channel if us_xs is not None else None
+                raw_dn_len = (
+                    canonical_interval - s.culvert_length - s.culvert_us_distance
+                    if canonical_interval is not None else None
+                )
+                partition_valid = (
+                    us_xs is not None
+                    and ds_xs is not None
+                    and raw_dn_len is not None
+                    and raw_dn_len >= -0.01
+                    and math.isclose(
+                        s.culvert_us_distance + s.culvert_length + raw_dn_len,
+                        canonical_interval,
+                        rel_tol=1e-7,
+                        abs_tol=0.01,
+                    )
+                )
+                dn_len = max(0.0, raw_dn_len or 0.0)
+                partition_warning = "" if partition_valid else (
+                    "Culvert partition does not resolve to the connected US XS channel length."
+                )
+                anchor_cumdist = cumdist[i] if i < len(cumdist) else 0.0
+                up_face_cumdist = (
+                    anchor_cumdist - s.culvert_us_distance
+                    if partition_valid else anchor_cumdist
+                )
+                dn_face_cumdist = (
+                    up_face_cumdist - s.culvert_length
+                    if partition_valid else anchor_cumdist
+                )
+                geom_struct = geometry_text_structures.get(str(s.rs).strip()) if s.rs else None
+                profile_values = {n: (profs.get(n) if n in profs else None) for n in profile_names}
+                up_low = s.invert_us
+                dn_low = s.invert_ds
+                up_high = None
+                dn_high = None
+                if geom_struct is not None:
+                    if geom_struct.rise is not None:
+                        up_low = (s.invert_us or 0.0) + float(geom_struct.rise)
+                        dn_low = (s.invert_ds or 0.0) + float(geom_struct.rise)
+                    if geom_struct.barrel_us_station is not None and geom_struct.deck_up:
+                        up_high = _interpolate_station_elevation(geom_struct.deck_up, float(geom_struct.barrel_us_station))
+                    if geom_struct.barrel_ds_station is not None and geom_struct.deck_dn:
+                        dn_high = _interpolate_station_elevation(geom_struct.deck_dn, float(geom_struct.barrel_ds_station))
                 rows.append(WorkingRow(
                     id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
                     struc="CULVERT-UP",
-                    length_chnl=s.culvert_length or 0.0,
-                    cumdist=cumdist[i] if i < len(cumdist) else 0.0,
+                    length_chnl=0.0,
+                    cumdist=up_face_cumdist,
                     minchel=s.invert_us,
-                    profiles={n: None for n in profile_names},
+                    low_chord=up_low,
+                    high_chord=up_high,
+                    profiles=profile_values,
                     kind="struct", source_xs_index=i,
+                    weir_width=s.weir_width,
+                    connected_us_rs=s.us_rs,
+                    connected_ds_rs=s.ds_rs,
+                    culvert_us_gap=s.culvert_us_distance,
+                    culvert_barrel_length=s.culvert_length,
+                    culvert_ds_residual=dn_len,
+                    structure_partition_valid=partition_valid,
+                    structure_partition_warning=partition_warning,
                 ))
                 rid += 1
                 rows.append(WorkingRow(
                     id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
                     struc="CULVERT-DN",
-                    length_chnl=dn_len,
-                    cumdist=cumdist[i] if i < len(cumdist) else 0.0,
+                    length_chnl=0.0,
+                    cumdist=dn_face_cumdist,
                     minchel=s.invert_ds,
-                    profiles={n: None for n in profile_names},
+                    low_chord=dn_low,
+                    high_chord=dn_high,
+                    profiles=profile_values,
                     kind="struct", source_xs_index=i,
+                    weir_width=s.weir_width,
+                    connected_us_rs=s.us_rs,
+                    connected_ds_rs=s.ds_rs,
+                    culvert_us_gap=s.culvert_us_distance,
+                    culvert_barrel_length=s.culvert_length,
+                    culvert_ds_residual=dn_len,
+                    structure_partition_valid=partition_valid,
+                    structure_partition_warning=partition_warning,
                 ))
                 rid += 1
                 continue
@@ -323,12 +457,19 @@ def build_working_from_plan(
                 rows.append(WorkingRow(
                     id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
                     struc=label,
-                    length_chnl=s.weir_width or 0.0,
+                    length_chnl=0.0 if s_type == "LATERAL" else (s.weir_width or 0.0),
                     cumdist=scum,
                     minchel=s.minchel if s.minchel is not None else xs.minchel,
                     low_chord=s.low_chord, high_chord=s.high_chord,
                     profiles={n: None for n in profile_names},
                     kind="struct", source_xs_index=i,
+                    weir_width=s.weir_width,
+                    connected_us_rs=s.us_rs,
+                    structure_profile_data=list(s.profile_data),
+                    hw_connectivity=list(s.hw_connectivity),
+                    tw_connectivity=list(s.tw_connectivity),
+                    lateral_hw_distance=s.lateral_hw_distance,
+                    lateral_tw_distance=s.lateral_tw_distance,
                 ))
                 rid += 1
     return rows
@@ -390,22 +531,83 @@ def reletter_from(rows: list[WorkingRow], start_row_id: int, start_letter: str) 
 
 
 def recalc_cumdist(rows: list[WorkingRow], start: float = 0.0) -> list[WorkingRow]:
-    """Recalculate CUMDIST from LENGTHCHNL, downstream→upstream (v3 §6.2)."""
-    if not rows:
+    """Recalculate canonical main-channel CUMDIST from ordinary XS rows only."""
+    xs_rows = [row for row in rows if row.kind == "xs"]
+    if not xs_rows:
         return rows
 
-    running = start
-    ordered = list(reversed(rows))
+    from .merge import compute_cumdist_from_lengths
 
-    # downstream-most row keeps the supplied start value; it represents the
-    # current station without adding its own LENGTHCHNL to the cumulative total.
-    if ordered:
-        ordered[0].cumdist = start
-        running = start
+    cumdist = compute_cumdist_from_lengths(
+        [
+            row.canonical_length_chnl
+            if row.canonical_length_chnl is not None else row.length_chnl
+            for row in xs_rows
+        ],
+        start=start,
+    )
+    for row, distance in zip(xs_rows, cumdist):
+        row.cumdist = distance
 
-    for r in ordered[1:]:
-        running += r.length_chnl or 0.0
-        r.cumdist = running
+    # A lateral is temporarily displayed at its explicit connected US XS. It
+    # is not a main-channel interval and must not affect the XS chain.
+    xs_by_rs = {row.rs: row for row in xs_rows}
+    xs_by_index = {
+        row.source_xs_index: row
+        for row in xs_rows
+        if row.source_xs_index is not None
+    }
+    for row in rows:
+        if row.kind != "struct" or (row.struc or "").upper() != "LATERAL":
+            continue
+        anchor = xs_by_rs.get(row.connected_us_rs)
+        if anchor is None and row.source_xs_index is not None:
+            anchor = xs_by_index.get(row.source_xs_index)
+        if anchor is not None:
+            row.cumdist = anchor.cumdist
+
+    # A validated culvert partition locates faces within an already-accounted
+    # ordinary-XS interval; it never contributes another reach length.
+    culvert_pairs: dict[str, dict[str, WorkingRow]] = {}
+    for row in rows:
+        label = (row.struc or "").upper()
+        if label in {"CULVERT-UP", "CULVERT-DN"}:
+            culvert_pairs.setdefault(str(row.rs), {})[label] = row
+    for pair in culvert_pairs.values():
+        up = pair.get("CULVERT-UP")
+        dn = pair.get("CULVERT-DN")
+        template = up or dn
+        if template is None or template.structure_partition_valid is not True:
+            continue
+        us_xs = xs_by_rs.get(template.connected_us_rs)
+        ds_xs = xs_by_rs.get(template.connected_ds_rs)
+        if us_xs is None or ds_xs is None:
+            continue
+        gap = template.culvert_us_gap
+        barrel = template.culvert_barrel_length
+        residual = template.culvert_ds_residual
+        if gap is None or barrel is None or residual is None:
+            continue
+        up_face = us_xs.cumdist - gap
+        dn_face = up_face - barrel
+        partition_ok = math.isclose(
+            dn_face - ds_xs.cumdist,
+            residual,
+            rel_tol=1e-7,
+            abs_tol=0.01,
+        )
+        if not partition_ok:
+            for row in (up, dn):
+                if row is not None:
+                    row.structure_partition_valid = False
+                    row.structure_partition_warning = (
+                        "Recalculated culvert faces do not conserve the connected XS interval."
+                    )
+            continue
+        if up is not None:
+            up.cumdist = up_face
+        if dn is not None:
+            dn.cumdist = dn_face
 
     return rows
 
