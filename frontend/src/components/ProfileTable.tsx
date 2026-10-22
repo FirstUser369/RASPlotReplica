@@ -3,58 +3,51 @@ import type { GetProfileResponse } from "../api/client";
 
 type Props = {
   profile: GetProfileResponse;
-  selectedRs: string | null;
-  onSelectRs: (rs: string) => void;
-  onEditLetter?: (rs: string, letter: string) => void;
-  onEditLabelText?: (rs: string, text: string) => void;
+  selectedXsId: string | null;
+  onSelectXs: (xsId: string) => void;
+  onEditLetter?: (xsId: string, letter: string) => void;
+  onEditLabelText?: (xsId: string, text: string) => void;
   onEditWorkingRow?: (
-    rs: string,
+    xsId: string,
     field: "length_chnl" | "minchel" | "low_chord" | "high_chord",
     value: number | null,
   ) => Promise<void> | void;
-  onEditProfileValue?: (rs: string, profileName: string, value: number | null) => Promise<void> | void;
-  workingByRs?: Record<string, number>;
+  onEditProfileValue?: (xsId: string, profileName: string, value: number | null) => Promise<void> | void;
+  workingByIdentity?: Record<string, number>;
   workspaceMode?: boolean;
   mode?: "compact" | "workspace";
 };
 
 export default function ProfileTable({
   profile,
-  selectedRs,
-  onSelectRs,
+  selectedXsId,
+  onSelectXs,
   onEditLetter,
   onEditLabelText,
   onEditWorkingRow,
   onEditProfileValue,
-  workingByRs,
+  workingByIdentity,
   workspaceMode = false,
   mode,
 }: Props) {
   const resolvedMode = mode ?? (workspaceMode ? "workspace" : "compact");
   const rows = useMemo(() => {
     const out: any[] = [];
+    const pending = new Set(profile.structures);
     for (const c of profile.cross_sections) {
-      out.push({ kind: "xs", ...c });
+      out.push({kind:"xs",...c});
       for (const s of profile.structures) {
-        const sRs = parseFloat(s.rs);
-        const cRs = parseFloat(c.rs);
-        const next = profile.cross_sections[profile.cross_sections.indexOf(c) + 1];
-        const nextRs = next ? parseFloat(next.rs) : -Infinity;
-        if (Number.isFinite(sRs) && Number.isFinite(cRs)) {
-          const belongs = cRs >= sRs && (!Number.isFinite(nextRs) || nextRs < sRs);
-          const closest = profile.cross_sections.reduce((best, x) => {
-            const d = Math.abs(parseFloat(x.rs) - sRs);
-            return d < best.d ? { rs: x.rs, d } : best;
-          }, { rs: c.rs, d: Infinity });
-          if (belongs && closest.rs === c.rs && closest.d < 500) {
-            out.push({ kind: "struct", ...s, cumdist: s.cumdist ?? c.cumdist });
-          }
+        if (s.river === c.river && s.reach === c.reach && s.connected_us_rs === c.rs) {
+          out.push({kind:"struct",...s});
+          pending.delete(s);
         }
       }
     }
+    for (const s of pending) out.push({kind:"struct",...s});
     return out;
   }, [profile]);
 
+  const profileLabel = (id: string) => profile.profile_metadata?.find(p => p.profile_id === id)?.name ?? id;
   const extraProfiles = useMemo(
     () => (profile.profiles_selected ?? [profile.profile]).filter((n) => n !== profile.profile),
     [profile],
@@ -65,11 +58,11 @@ export default function ProfileTable({
   const [errorText, setErrorText] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selectedRs || !tableRef.current || !workspaceMode) return;
-    const selector = `[data-row-rs="${CSS.escape(String(selectedRs))}"]`;
+    if (!selectedXsId || !tableRef.current || !workspaceMode) return;
+    const selector = `[data-row-identity="${CSS.escape(String(selectedXsId))}"]`;
     const row = tableRef.current.querySelector(selector) as HTMLElement | null;
     row?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [selectedRs, workspaceMode]);
+  }, [selectedXsId, workspaceMode]);
 
   function restoreOriginalValue(target: HTMLInputElement) {
     const original = target.dataset.originalValue ?? "";
@@ -95,7 +88,7 @@ export default function ProfileTable({
   }
 
   function commitFieldInput(target: HTMLInputElement, mode: "letter" | "label" | "numeric" | "profile") {
-    const rs = target.dataset.rs ?? "";
+    const xsId = target.dataset.xsId ?? "";
     const field = target.dataset.field ?? "";
     const profileName = target.dataset.profileName ?? "";
     const original = target.dataset.originalValue ?? target.value;
@@ -103,24 +96,24 @@ export default function ProfileTable({
       if (mode === "letter") {
         const value = target.value.trim();
         if (value !== (target.dataset.originalValue ?? "") && onEditLetter) {
-          onEditLetter(rs, value);
+          onEditLetter(xsId, value);
         }
         return;
       }
       if (mode === "label") {
         const value = target.value.trim();
         if (value !== (target.dataset.originalValue ?? "") && onEditLabelText) {
-          onEditLabelText(rs, value);
+          onEditLabelText(xsId, value);
         }
         return;
       }
       if (mode === "numeric") {
         const numeric = parseNumericValue(target.value);
-        if (field && onEditWorkingRow && rs) {
+        if (field && onEditWorkingRow && xsId) {
           const current = (target.dataset.originalValue ?? "") === "" ? null : parseNumericValue(target.dataset.originalValue ?? "");
           const next = numeric;
           if (next !== current && onEditWorkingRow) {
-            onEditWorkingRow(rs, field as any, next);
+            onEditWorkingRow(xsId, field as any, next);
           }
         }
         return;
@@ -129,8 +122,8 @@ export default function ProfileTable({
         const numeric = parseNumericValue(target.value);
         const current = (target.dataset.originalValue ?? "") === "" ? null : parseNumericValue(target.dataset.originalValue ?? "");
         const next = numeric;
-        if (profileName && rs && next !== current && onEditProfileValue) {
-          onEditProfileValue(rs, profileName, next);
+        if (profileName && xsId && next !== current && onEditProfileValue) {
+          onEditProfileValue(xsId, profileName, next);
         }
       }
     } catch (e: any) {
@@ -150,7 +143,7 @@ export default function ProfileTable({
     const initial = value == null ? "" : String(value);
     return {
       className: "editable-grid-cell",
-      "data-rs": row.rs,
+      "data-xs-id": row.xs_id ?? "",
       "data-field": field,
       "data-profile-name": profileName ?? "",
       "data-original-value": initial,
@@ -220,7 +213,8 @@ export default function ProfileTable({
   ];
 
   return (
-    <div className={`profile-table profile-table--${resolvedMode}`}>
+    <div className={`profile-table profile-table--${resolvedMode}`} aria-label={isCompact ? "Profile data summary" : "Editable engineering profile data"}>
+      {workspaceMode && <div className="data-grid-legend"><span><i className="data-grid-legend__editable" />Editable working value</span><span><i className="data-grid-legend__source" />Read-only calculated/source value</span><span>Exact input precision is preserved</span></div>}
       <div className={`table-scroll ${workspaceMode ? "table-scroll--workspace" : ""}`}>
         {errorText && <div className="table-error">{errorText}</div>}
         {copiedText != null && <div className="table-copy">Copied: {copiedText}</div>}
@@ -236,29 +230,29 @@ export default function ProfileTable({
             <th className={stickyClass(2)} style={isCompact ? undefined : { left: `${stickyLefts[2]}px` }}>REACH</th>
             <th className={stickyClass(3)} style={isCompact ? undefined : { left: `${stickyLefts[3]}px` }}>RS</th>
             <th>STRUC</th>
-            <th>LENGTHCHNL</th>
-            <th>CUMDIST</th>
-            <th>MINCHEL</th>
-            <th>LOWCHORD</th>
-            <th>HIGHCHORD</th>
+            <th title="Working channel length in feet">LENGTHCHNL <small>ft</small></th>
+            <th title="Calculated cumulative distance in feet">CUMDIST <small>ft</small></th>
+            <th title="Minimum channel elevation in feet">MINCHEL <small>ft</small></th>
+            <th>LOWCHORD <small>ft</small></th>
+            <th>HIGHCHORD <small>ft</small></th>
             <th>LETTER</th>
             <th>LABEL</th>
-            <th>{profile.profile}</th>
+            <th>{profileLabel(profile.profile)}</th>
             {extraProfiles.map((n) => (
-              <th key={n}>{n}</th>
+              <th key={n}>{profileLabel(n)}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => {
             if (r.kind === "xs") {
-              const isFlash = selectedRs === r.rs;
+              const isFlash = selectedXsId === r.xs_id;
               return (
                 <tr
-                  key={`xs${i}`}
+                  key={r.xs_id ?? `xs${i}`}
                   className={isFlash ? "flash" : ""}
-                  data-row-rs={r.rs}
-                  onClick={() => onSelectRs(r.rs)}
+                  data-row-identity={r.xs_id}
+                  onClick={() => onSelectXs(r.xs_id)}
                 >
                   <td className={stickyClass(1)} style={isCompact ? undefined : { left: `${stickyLefts[1]}px` }}>{r.river}</td>
                   <td className={stickyClass(2)} style={isCompact ? undefined : { left: `${stickyLefts[2]}px` }}>{r.reach}</td>
@@ -332,11 +326,11 @@ export default function ProfileTable({
               );
             }
             return (
-              <tr key={`st${i}`} className="struct" data-row-rs={r.rs} onClick={() => onSelectRs(r.rs)}>
+              <tr key={r.row_identity ?? `${r.structure_id ?? i}-${r.type}`} title={r.support_reason} className="struct" data-row-identity={r.row_identity} onClick={() => r.row_identity && onSelectXs(r.row_identity)}>
                 <td className={stickyClass(1)} style={isCompact ? undefined : { left: `${stickyLefts[1]}px` }}>{r.river}</td>
                 <td className={stickyClass(2)} style={isCompact ? undefined : { left: `${stickyLefts[2]}px` }}>{r.reach}</td>
                 <td className={stickyClass(3)} style={isCompact ? undefined : { left: `${stickyLefts[3]}px` }}>{r.rs}</td>
-                <td>{r.type}</td>
+                <td>{r.type}{r.support_status !== "VALIDATED" ? ` (${r.support_status ?? "UNSUPPORTED"})` : ""}</td>
                 {isCompact ? (
                   <>
                     <td>{fmt(r.weir_width)}</td>

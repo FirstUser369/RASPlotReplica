@@ -9,14 +9,21 @@ Styling (colors, linetypes, legend) comes from ProfileMeta / Frequency editor
 and the current view options.
 """
 from __future__ import annotations
+from .hydraulics import segments, resolve_profiles, profile_label
 
 import math
+import textwrap
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import ezdxf
 from ezdxf import colors as dxf_colors
 from ezdxf.enums import TextEntityAlignment
+
+from .export_geometry import page_dimensions, plot_dimensions, validate_scales, validate_export, ExportGeometryError, DXF_VERSIONS, LEFT, BOTTOM
+from .engineering_drawing import DrawingBuildConfig, build_engineering_drawing
+
+from .structure_model import export_faces
 
 from .rasplot_db import (
     PAGE_SIZES, PLOT_MARGIN_L, PLOT_MARGIN_R, PLOT_MARGIN_B, PLOT_MARGIN_T,
@@ -93,6 +100,10 @@ def _layer(doc, name: str, color: int = 7, linetype: str = "Continuous") -> None
         doc.layers.add(name, color=color, linetype=linetype)
 
 
+def _profile_layer(profile: ProfileMeta, legacy_modelspace: bool) -> str:
+    return profile.layer or f"PROF_{profile.profile_id}"
+
+
 def _station_intervals_intersect(
     first_start: float,
     first_end: float,
@@ -165,7 +176,9 @@ def export_dxf(
     include_grid: bool = True,
     include_title_block: bool = True,
     custom_page: tuple[float, float] | None = None,
+    legacy_modelspace: bool = False,
     revision_interval: tuple[float, float] | None = None,
+    drawing_config: DrawingBuildConfig | None = None,
 ) -> str:
     """Write a multi-panel FIS flood profile DXF and return the path."""
     out_path = Path(out_path)
@@ -173,10 +186,10 @@ def export_dxf(
     page_size = page_size or header.page_size or "11x17"
     h_scale = float(h_scale if h_scale is not None else header.h_scale)
     v_scale = float(v_scale if v_scale is not None else header.v_scale)
-    if custom_page:
-        page_w, page_h = custom_page
-    else:
-        page_w, page_h = PAGE_SIZES.get(page_size, (17.0, 11.0))
+    validate_scales(h_scale, v_scale)
+    page_w, page_h = page_dimensions(page_size, custom_page)
+    if legacy_modelspace:
+        raise ExportGeometryError("legacy_modelspace is outside the validated public paper-inch export contract.")
 
     panels = panels if panels is not None else db.panels
     if not panels:
@@ -184,63 +197,69 @@ def export_dxf(
         panels = auto_panels(db.working, h_scale=h_scale, v_scale=v_scale, page_size=page_size)
 
     # Resolve selected profiles
-    meta_by_name = {p.name: p for p in db.profiles}
     if profile_names:
-        selected = [meta_by_name[n] for n in profile_names if n in meta_by_name]
+        selected = resolve_profiles(db.profiles,profile_names)
     else:
         selected = [p for p in db.profiles if p.selected] or list(db.profiles[:1])
 
     unit_factor = distance_unit_factor(header.unit)
 
-    try:
-        doc = ezdxf.new(dxf_version)
-    except Exception:
-        doc = ezdxf.new("R2013")
+    if dxf_version not in DXF_VERSIONS:
+        raise ExportGeometryError(f"Unsupported DXF version {dxf_version!r}; choose {', '.join(DXF_VERSIONS)}.")
+    validate_export(db, panels, selected, (page_w, page_h), revision_interval)
+    drawing = build_engineering_drawing(
+        db, panels, [profile.profile_id for profile in selected],
+        revision=revision_interval, page_size=page_size, custom_page=custom_page,
+        config=drawing_config)
+    doc = ezdxf.new(dxf_version)
+    doc.header["$INSUNITS"] = 1
+    doc.header["$MEASUREMENT"] = 0
+    doc.header["$LUNITS"] = 2
     _ensure_linetypes(doc)
     msp = doc.modelspace()
 
     # Layers
     _layer(doc, "INVERT", color=0, linetype="Continuous")
-    _layer(doc, "GRID", color=8, linetype="DOTTED")
+    if legacy_modelspace:
+        _layer(doc, "STREAM", color=0, linetype="Continuous")
+    _layer(doc, "GRID_MAJOR", color=8, linetype="Continuous")
+    _layer(doc, "GRID_MINOR", color=9, linetype="Continuous")
     _layer(doc, "PANEL_BORDER", color=7)
     _layer(doc, "TITLE_BLOCK", color=7)
+    _layer(doc, "AXIS_LABELS", color=7)
+    _layer(doc, "LEGEND", color=7)
+    _layer(doc, "PANEL_ID", color=7)
+    _layer(doc, "CROSS_SECTIONS", color=7)
+    _layer(doc, "ENGINEERING_ANNOTATIONS", color=7)
     _layer(doc, "XS_LABEL", color=7)
     _layer(doc, "LANDMARK", color=7)
     _layer(doc, "BACKWATER", color=1)
     _layer(doc, "STRUCT_BRIDGE", color=7)
     _layer(doc, "STRUCT_CULVERT", color=7)
+    _layer(doc, "STRUCT_CULVERT_OUTLINE", color=7)
     _layer(doc, "STRUCT_WEIR", color=7)
     _layer(doc, "STRUCT_LATERAL", color=7)
     _layer(doc, "STRUCT_OTHER", color=7)
+    if legacy_modelspace:
+        _layer(doc, "CULVERT", color=7)
     for p in selected:
         lt = _LTYPE_MAP.get((p.linetype or "CONTINUOUS").upper(), "Continuous")
-        _layer(doc, p.layer or f"PROF_{p.name}", color=_hex_to_aci(p.color), linetype=lt)
+        _layer(doc, _profile_layer(p, legacy_modelspace), color=_hex_to_aci(p.color), linetype=lt)
+    profile_layers = {profile.profile_id: _profile_layer(profile, legacy_modelspace)
+                      for profile in selected}
 
     xs_rows = [r for r in db.working if r.kind == "xs"]
-    struct_rows = [r for r in db.working if r.kind == "struct"]
-    invert_source = [
-        (r.cumdist, r.minchel) for r in xs_rows if r.minchel is not None
-    ]
-    culvert_pairs: dict[str, dict[str, WorkingRow]] = {}
-    for row in struct_rows:
-        structure_name = (row.struc or "").upper()
-        if structure_name not in {"CULVERT-DN", "CULVERT-UP"}:
-            continue
-        culvert_pairs.setdefault(str(row.rs), {})[structure_name] = row
-
     # Lay out panels horizontally with 0.5" gap between
     gap = 0.5
     cursor_x = 0.0
-    for pi, panel in enumerate(panels):
-        ox = panel.panel_x if panel.panel_x else cursor_x
-        oy = panel.panel_y if panel.panel_y else 0.0
+    for pi, (panel, drawing_panel) in enumerate(zip(panels, drawing.panels)):
+        ox = panel.panel_x if panel.panel_x is not None else cursor_x
+        oy = panel.panel_y if panel.panel_y is not None else 0.0
         ph = panel.h_scale or h_scale
         pv = panel.v_scale or v_scale
         # plot area inside sheet (must match auto_panels usable width)
-        margin_l, margin_r = PLOT_MARGIN_L, PLOT_MARGIN_R
-        margin_b, margin_t = PLOT_MARGIN_B, PLOT_MARGIN_T
-        plot_w = page_w - margin_l - margin_r
-        plot_h = page_h - margin_b - margin_t
+        margin_l, margin_b = LEFT, BOTTOM
+        plot_w, plot_h = plot_dimensions(panel, (page_w, page_h))
         # origin of data axes in modelspace inches
         ax0 = ox + margin_l
         ay0 = oy + margin_b
@@ -250,6 +269,15 @@ def export_dxf(
 
         def sy(elev: float) -> float:
             return ay0 + (elev - panel.start_elevation) / pv
+
+        def engineering_sx(station: float) -> float:
+            return station if legacy_modelspace else sx(station)
+
+        def engineering_sy(elev: float) -> float:
+            if not legacy_modelspace:
+                return sy(elev)
+            vertical_base = panel.start_elevation - 1.0
+            return 100.0 * (elev - vertical_base)
 
         clip_start = panel.start_station
         clip_end = panel.end_station
@@ -269,116 +297,72 @@ def export_dxf(
         )
 
         if include_grid:
-            _draw_grid(msp, ax0, ay0, plot_w, plot_h, panel, ph, pv)
+            _draw_grid(msp, drawing_panel, sx, sy, ax0, ay0, plot_w, plot_h)
 
-        # Invert
-        clipped_invert = clip_station_elevation_polyline(invert_source, clip_start, clip_end)
-        inv_pts = [
-            (sx(station), sy(elevation))
-            for station, elevation in clipped_invert
-        ]
-        if len(inv_pts) >= 2:
-            msp.add_lwpolyline(inv_pts, dxfattribs={"layer": "INVERT", "lineweight": 25})
+        for polyline in drawing_panel.polylines:
+            points = [(sx(point.x), sy(point.y)) for point in polyline.points]
+            if polyline.kind == "STREAM_BED" and len(points) >= 2:
+                msp.add_lwpolyline(points, dxfattribs={"layer": "INVERT", "lineweight": 25})
+            elif polyline.kind == "PROFILE" and len(points) >= 2:
+                layer = profile_layers.get(polyline.profile_id, polyline.layer)
+                msp.add_lwpolyline(
+                    points,
+                    dxfattribs={"layer": layer,
+                                "lineweight": int((polyline.lineweight or .3) * 100)})
+            elif polyline.kind == "STRUCTURE_FACE" and len(points) >= 2:
+                msp.add_line(points[0], points[1], dxfattribs={"layer": "STRUCT_CULVERT"})
+            elif polyline.kind == "CULVERT_OUTLINE" and len(points) >= 3:
+                msp.add_lwpolyline(
+                    points, close=True,
+                    dxfattribs={"layer": "STRUCT_CULVERT_OUTLINE", "lineweight": 45})
 
-        # Profiles
-        for pmeta in selected:
-            profile_source = [
-                (r.cumdist, value)
-                for r in xs_rows
-                if (value := r.profiles.get(pmeta.name)) is not None
-            ]
-            clipped_profile = clip_station_elevation_polyline(
-                profile_source, clip_start, clip_end
-            )
-            pts = [
-                (sx(station), sy(elevation))
-                for station, elevation in clipped_profile
-            ]
-            if len(pts) >= 2:
-                layer = pmeta.layer or f"PROF_{pmeta.name}"
-                lw = int((pmeta.lineweight or 0.3) * 100)
-                msp.add_lwpolyline(pts, dxfattribs={"layer": layer, "lineweight": lw})
-
-        # Structures
-        for s in struct_rows:
-            structure_name = (s.struc or "").upper()
-            pair = culvert_pairs.get(str(s.rs))
-            if structure_name in {"CULVERT-DN", "CULVERT-UP"} and pair is not None \
-                    and (dn := pair.get("CULVERT-DN")) is not None \
-                    and (up := pair.get("CULVERT-UP")) is not None:
-                visible = _station_intervals_intersect(
-                    dn.cumdist, up.cumdist, clip_start, clip_end,
-                )
+        # Retain the existing low-chord face in addition to the shared face geometry.
+        for face in export_faces(db.working,clip_start,clip_end):
+            x = sx(face.cumdist)
+            msp.add_lwpolyline([(x,sy(face.low_chord)),(x,sy(face.high_chord))],
+                              dxfattribs={"layer":"STRUCT_CULVERT"})
+        for annotation in drawing_panel.annotations:
+            x, y = sx(annotation.anchor.x), sy(annotation.anchor.y)
+            if annotation.kind in {"CROSS_SECTION", "CROSS_SECTION_LOCATION"}:
+                half = 0.035
+                msp.add_line((x - half, y), (x + half, y),
+                             dxfattribs={"layer": "CROSS_SECTIONS", "lineweight": 13})
+                msp.add_line((x, y - half), (x, y + half),
+                             dxfattribs={"layer": "CROSS_SECTIONS", "lineweight": 13})
+                layer, height, align = "XS_LABEL", 0.11, TextEntityAlignment.MIDDLE_CENTER
+            elif annotation.kind == "LANDMARK":
+                layer, height, align = "LANDMARK", 0.10, TextEntityAlignment.LEFT
+            elif annotation.kind == "BACKWATER":
+                msp.add_line((ax0, y), (ax0 + plot_w, y),
+                             dxfattribs={"layer": "BACKWATER", "linetype": "DASHED"})
+                layer, height, align = "BACKWATER", 0.10, TextEntityAlignment.LEFT
+            elif annotation.kind == "STRUCTURE":
+                layer, height, align = "STRUCT_OTHER", 0.08, TextEntityAlignment.LEFT
             else:
-                visible = clip_start <= s.cumdist <= clip_end
-            if visible:
-                _draw_structure(msp, s, sx, sy)
-
-        # XS labels
-        for r in xs_rows:
-            if not r.label_letter:
-                continue
-            if not (clip_start <= r.cumdist <= clip_end):
-                continue
-            y = r.minchel if r.minchel is not None else panel.start_elevation
-            # prefer sit above primary profile
-            if selected:
-                pv_val = r.profiles.get(selected[0].name)
-                if pv_val is not None:
-                    y = pv_val
-            msp.add_text(
-                r.label_letter,
-                dxfattribs={"layer": "XS_LABEL", "height": 0.14,
-                            "style": "Standard"},
-            ).set_placement((sx(r.cumdist), sy(y) + 0.08), align=TextEntityAlignment.BOTTOM_CENTER)
-
-            if r.label_text:
+                layer, height, align = "ENGINEERING_ANNOTATIONS", 0.10, TextEntityAlignment.LEFT
+            if annotation.text:
                 msp.add_text(
-                    r.label_text,
-                    dxfattribs={"layer": "XS_LABEL", "height": 0.10},
-                ).set_placement((sx(r.cumdist), sy(y) + 0.28), align=TextEntityAlignment.BOTTOM_CENTER)
-
-        # Landmarks
-        for lm in db.landmarks:
-            if clip_start <= lm.distance <= clip_end:
-                rot = 90.0 if (lm.orientation or "").lower().startswith("v") else 0.0
-                msp.add_text(
-                    lm.text,
-                    dxfattribs={"layer": "LANDMARK", "height": 0.10, "rotation": rot},
-                ).set_placement((sx(lm.distance), sy(lm.elevation)),
-                                align=TextEntityAlignment.LEFT)
-
-        # Backwater (use first selected profile with backwater)
-        for pmeta in selected:
-            if pmeta.backwater_elev is None:
-                continue
-            y = sy(pmeta.backwater_elev)
-            # indicator line across panel where profile is below backwater
-            msp.add_line((ax0, y), (ax0 + plot_w, y),
-                         dxfattribs={"layer": "BACKWATER", "linetype": "DASHED"})
-            if pmeta.backwater_text:
-                msp.add_text(
-                    pmeta.backwater_text,
-                    dxfattribs={"layer": "BACKWATER", "height": 0.10},
-                ).set_placement((ax0 + 0.1, y + 0.05), align=TextEntityAlignment.LEFT)
-            break
+                    annotation.text,
+                    dxfattribs={"layer": layer, "height": height,
+                                "rotation": annotation.rotation_degrees},
+                ).set_placement((x, y), align=align)
 
         # Title block
         if include_title_block:
-            _title_block(msp, ox, oy, page_w, page_h, panel, header, pi, len(panels), selected)
+            _title_block(msp, ox, oy, page_w, page_h, plot_w, drawing_panel, drawing)
 
         # Axis labels
         msp.add_text(
-            f"DISTANCE ({header.unit.upper()}) ABOVE {header.stream_distance_label.upper()}",
-            dxfattribs={"layer": "TITLE_BLOCK", "height": 0.10},
+            drawing.presentation.horizontal_axis_title,
+            dxfattribs={"layer": "AXIS_LABELS", "height": 0.10},
         ).set_placement((ax0 + plot_w / 2, oy + 0.35), align=TextEntityAlignment.MIDDLE_CENTER)
         msp.add_text(
-            f"ELEVATION ({header.vertical_datum})",
-            dxfattribs={"layer": "TITLE_BLOCK", "height": 0.10, "rotation": 90},
+            drawing.presentation.vertical_axis_title,
+            dxfattribs={"layer": "AXIS_LABELS", "height": 0.10, "rotation": 90},
         ).set_placement((ox + 0.35, ay0 + plot_h / 2), align=TextEntityAlignment.MIDDLE_CENTER)
 
         # Tick labels on axes
-        _axis_labels(msp, panel, sx, sy, ax0, ay0, plot_w, plot_h, unit_factor, header.unit)
+        _axis_labels(msp, drawing_panel, sx, sy, ax0, ay0, unit_factor)
 
         cursor_x = ox + page_w + gap
 
@@ -386,94 +370,77 @@ def export_dxf(
     return str(out_path)
 
 
-def _draw_grid(msp, ax0, ay0, plot_w, plot_h, panel, ph, pv) -> None:
-    # vertical grid every inch of paper (= ph feet of station)
-    n_v = max(1, int(round(plot_w)))
-    for i in range(n_v + 1):
-        x = ax0 + i
-        msp.add_line((x, ay0), (x, ay0 + plot_h), dxfattribs={"layer": "GRID"})
-    n_h = max(1, int(round(plot_h)))
-    for j in range(n_h + 1):
-        y = ay0 + j
-        msp.add_line((ax0, y), (ax0 + plot_w, y), dxfattribs={"layer": "GRID"})
-
-def _draw_structure(msp, s: WorkingRow, sx, sy) -> None:
-    t = (s.struc or "").upper()
-    x = sx(s.cumdist)
-    yb = sy(s.minchel) if s.minchel is not None else sy(0)
-    if "BRIDGE" in t and s.low_chord is not None and s.high_chord is not None:
-        y0, y1 = sy(s.low_chord), sy(s.high_chord)
-        w = 0.12
-        msp.add_lwpolyline(
-            [(x - w, y0), (x + w, y0), (x + w, y1), (x - w, y1), (x - w, y0)],
-            dxfattribs={"layer": "STRUCT_BRIDGE", "closed": True},
-        )
-        msp.add_line((x, yb), (x, y1), dxfattribs={"layer": "STRUCT_BRIDGE"})
-    elif "CULVERT" in t and s.low_chord is not None and s.high_chord is not None:
-        y0, y1 = sy(s.low_chord), sy(s.high_chord)
-        w = 0.10
-        msp.add_lwpolyline(
-            [(x - w, y0), (x + w, y0), (x + w, y1), (x - w, y1), (x - w, y0)],
-            dxfattribs={"layer": "STRUCT_CULVERT", "closed": True},
-        )
-        msp.add_line((x, yb), (x, y1), dxfattribs={"layer": "STRUCT_CULVERT"})
-    elif any(k in t for k in ("WEIR", "INLINE", "LATERAL")) and (s.high_chord is not None or s.low_chord is not None):
-        crest = s.high_chord if s.high_chord is not None else s.low_chord
-        yc = sy(crest)
-        msp.add_line((x - 0.15, yc), (x + 0.15, yc), dxfattribs={"layer": "STRUCT_WEIR", "lineweight": 50})
-        msp.add_line((x, yb), (x, yc), dxfattribs={"layer": "STRUCT_WEIR"})
-    else:
-        msp.add_line((x, yb), (x, yb + 0.3), dxfattribs={"layer": "STRUCT_OTHER"})
-    # label
-    lab = (s.struc or "STR")[:12]
-    msp.add_text(lab, dxfattribs={"layer": "STRUCT_OTHER", "height": 0.08, "rotation": 90}
-                 ).set_placement((x + 0.04, yb + 0.05), align=TextEntityAlignment.LEFT)
+def _draw_grid(msp, panel, sx, sy, ax0, ay0, plot_w, plot_h) -> None:
+    for grid_line in panel.grid_lines:
+        layer = "GRID_MAJOR" if grid_line.major else "GRID_MINOR"
+        lineweight = 25 if grid_line.major else 9
+        if grid_line.axis == "STATION":
+            x = sx(grid_line.coordinate)
+            start, end = (x, ay0), (x, ay0 + plot_h)
+        else:
+            y = sy(grid_line.coordinate)
+            start, end = (ax0, y), (ax0 + plot_w, y)
+        msp.add_line(start, end, dxfattribs={"layer": layer, "lineweight": lineweight})
 
 
-def _title_block(msp, ox, oy, page_w, page_h, panel, header, pi, n_panels, selected) -> None:
-    xn = ox + 0.25
-    y = oy + page_h - 0.4
-    lines = [
-        "FLOOD PROFILE",
-        (header.stream_name or "").upper(),
-        f"{(header.community or '').upper()}, {(header.county or '').upper()}, {(header.state or '').upper()}",
-        f"PANEL {panel.panel + header.start_panel_no - 1} OF {n_panels + header.start_panel_no - 1}",
-        f"H SCALE 1\" = {panel.h_scale:g} {header.unit}",
-        f"V SCALE 1\" = {panel.v_scale:g} FT",
-    ]
-    for line in lines:
-        msp.add_text(line, dxfattribs={"layer": "TITLE_BLOCK", "height": 0.12}
-                     ).set_placement((xn, y), align=TextEntityAlignment.LEFT)
-        y -= 0.22
-    # Legend
-    y -= 0.15
-    msp.add_text("LEGEND", dxfattribs={"layer": "TITLE_BLOCK", "height": 0.10}
-                 ).set_placement((xn, y), align=TextEntityAlignment.LEFT)
-    y -= 0.18
-    for p in selected:
-        layer = p.layer or f"PROF_{p.name}"
-        msp.add_line((xn, y + 0.04), (xn + 0.35, y + 0.04),
-                     dxfattribs={"layer": layer, "lineweight": 35})
-        msp.add_text(p.legend_text or p.name,
-                     dxfattribs={"layer": "TITLE_BLOCK", "height": 0.09}
-                     ).set_placement((xn + 0.42, y), align=TextEntityAlignment.LEFT)
-        y -= 0.16
-    msp.add_line((xn, y + 0.04), (xn + 0.35, y + 0.04),
-                 dxfattribs={"layer": "INVERT", "lineweight": 25})
-    msp.add_text("STREAM BED", dxfattribs={"layer": "TITLE_BLOCK", "height": 0.09}
-                 ).set_placement((xn + 0.42, y), align=TextEntityAlignment.LEFT)
+def _title_block(msp, ox, oy, page_w, page_h, plot_w, panel, drawing) -> None:
+    x = ox + LEFT + plot_w + 0.22
+    y = oy + page_h - 0.35
+    width = max(16, int((page_w - LEFT - plot_w - 0.45) * 12))
+
+    def add_text(text: str, height: float = 0.10, layer: str = "TITLE_BLOCK", bold: bool = False) -> None:
+        nonlocal y
+        wrapped = textwrap.fill(text.upper(), width=width)
+        msp.add_text(wrapped, dxfattribs={
+            "layer": layer, "height": height,
+            "style": "Standard",
+        }).set_placement((x, y), align=TextEntityAlignment.LEFT)
+        y -= max(height * 1.6, height * 1.6 * len(wrapped.splitlines()))
+
+    identity = drawing.identity
+    add_text(drawing.presentation.page_title, 0.15, "TITLE_BLOCK", True)
+    for value, height in (
+        (identity.flooding_source_name, 0.11),
+        (identity.stream_name, 0.10),
+        (", ".join(value for value in (identity.community, identity.county, identity.state) if value), 0.09),
+        (identity.agency, 0.09),
+    ):
+        if value:
+            add_text(value, height)
+    add_text(f"PANEL {panel.display_id}", 0.11, "PANEL_ID", True)
+    add_text(f'H 1" = {panel.horizontal_scale:g} FT  V 1" = {panel.vertical_scale:g} FT', 0.08)
+    add_text(drawing.presentation.vertical_datum_disclosure, 0.09)
+    y -= 0.08
+    add_text("LEGEND", 0.10, "LEGEND", True)
+    for entry in drawing.presentation.legend_entries:
+        lineweight = 25 if entry.kind == "STREAM_BED" else int((entry.lineweight or 0.3) * 100)
+        color = _hex_to_aci(entry.color)
+        linetype = _LTYPE_MAP.get((entry.linetype or "CONTINUOUS").upper(), "Continuous")
+        msp.add_line((x, y + 0.04), (x + 0.32, y + 0.04), dxfattribs={
+            "layer": "LEGEND", "color": color, "linetype": linetype,
+            "lineweight": lineweight,
+        })
+        label = textwrap.fill(entry.label.upper(), width=max(12, width - 8))
+        msp.add_text(label, dxfattribs={"layer": "LEGEND", "height": 0.08}
+                     ).set_placement((x + 0.38, y), align=TextEntityAlignment.LEFT)
+        y -= max(0.13, 0.13 * len(label.splitlines()))
+    notes = list(drawing.presentation.data_unavailable_footnotes)
+    notes.extend(drawing.presentation.annotation_warnings)
+    for note in notes:
+        add_text(note, 0.07, "ENGINEERING_ANNOTATIONS")
 
 
-def _axis_labels(msp, panel, sx, sy, ax0, ay0, plot_w, plot_h, unit_factor, unit) -> None:
-    # station ticks every inch
-    n = max(1, int(round(plot_w)))
-    for i in range(n + 1):
-        stn = panel.start_station + i * panel.h_scale
-        label = f"{stn * unit_factor:.0f}" if unit_factor >= 1 else f"{stn * unit_factor:.2f}"
-        msp.add_text(label, dxfattribs={"layer": "TITLE_BLOCK", "height": 0.08}
-                     ).set_placement((sx(stn), ay0 - 0.18), align=TextEntityAlignment.TOP_CENTER)
-    n2 = max(1, int(round(plot_h)))
-    for j in range(n2 + 1):
-        elev = panel.start_elevation + j * panel.v_scale
-        msp.add_text(f"{elev:.0f}", dxfattribs={"layer": "TITLE_BLOCK", "height": 0.08}
-                     ).set_placement((ax0 - 0.08, sy(elev)), align=TextEntityAlignment.MIDDLE_RIGHT)
+def _axis_labels(msp, panel, sx, sy, ax0, ay0, unit_factor) -> None:
+    for grid_line in panel.grid_lines:
+        if not grid_line.major:
+            continue
+        if grid_line.axis == "STATION":
+            label = f"{grid_line.coordinate * unit_factor:g}"
+            placement = (sx(grid_line.coordinate), ay0 - 0.18)
+            alignment = TextEntityAlignment.TOP_CENTER
+        else:
+            label = f"{grid_line.coordinate:g}"
+            placement = (ax0 - 0.08, sy(grid_line.coordinate))
+            alignment = TextEntityAlignment.MIDDLE_RIGHT
+        msp.add_text(label, dxfattribs={"layer": "AXIS_LABELS", "height": 0.08}
+                     ).set_placement(placement, align=alignment)

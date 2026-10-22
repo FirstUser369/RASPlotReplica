@@ -27,6 +27,8 @@ type Props = {
   onEndElevationChange?: (v: string) => void;
   onStartElevationCommit?: (v: number | string) => void;
   onEndElevationCommit?: (v: number | string) => void;
+  onAutoEndElevation?: () => void;
+  activeFloodingSourceName?: string | null;
 };
 
 export default function ControlsRow({
@@ -58,11 +60,14 @@ export default function ControlsRow({
   onEndElevationChange,
   onStartElevationCommit,
   onEndElevationCommit,
+  onAutoEndElevation,
+  activeFloodingSourceName = null,
 }: Props) {
   const reaches = session?.reaches ?? [];
   const names: string[] = profileNames.length
     ? profileNames
-    : (session?.profiles?.map((p: any) => String(p.name)) ?? []);
+    : (session?.profiles?.map((p: any) => String(p.profile_id)) ?? []);
+  const displayName = (id: string) => { const p = session?.profiles?.find((p: any) => p.profile_id === id); return p ? `${p.display_name ?? p.name}${session.profiles.filter((q: any) => q.name === p.name).length > 1 ? ` [${id}]` : ""}` : id; };
   const primary = selectedProfiles[0] ?? names[0] ?? "";
 
   function setPrimary(name: string) {
@@ -80,20 +85,24 @@ export default function ControlsRow({
   const addable = names.filter((n) => !selectedProfiles.includes(n));
 
   return (
-    <div className="controls-row">
-      <label>Reach:</label>
-      <select value={reachIdx} onChange={(e) => onReachChange(parseInt(e.target.value, 10))}>
-        {reaches.map((r: any, i: number) => (
-          <option key={i} value={i}>
-            {r.river} \ {r.reach} ({r.cross_sections?.length ?? 0} xs)
-          </option>
-        ))}
-      </select>
+    <nav className="controls-row" aria-label="Profile, engineering, panel, and output commands">
+      <label>{activeFloodingSourceName ? "Flooding Source:" : "Reach:"}</label>
+      {activeFloodingSourceName ? (
+        <strong className="active-source-label">{activeFloodingSourceName}</strong>
+      ) : (
+        <select value={reachIdx} onChange={(e) => onReachChange(parseInt(e.target.value, 10))}>
+          {reaches.map((r: any, i: number) => (
+            <option key={i} value={i}>
+              {r.river} \ {r.reach} ({r.cross_sections?.length ?? 0} xs)
+            </option>
+          ))}
+        </select>
+      )}
 
       <label>Primary:</label>
       <select value={primary} onChange={(e) => setPrimary(e.target.value)}>
         {names.map((n) => (
-          <option key={n} value={n}>{n}</option>
+          <option key={n} value={n}>{displayName(n)}</option>
         ))}
       </select>
 
@@ -101,7 +110,7 @@ export default function ControlsRow({
       <div className="chip-row">
         {selectedProfiles.map((n) => (
           <span key={n} className={`chip ${n === primary ? "chip--primary" : ""}`}>
-            {n}
+            {displayName(n)}
             {selectedProfiles.length > 1 && (
               <button type="button" className="chip-x" onClick={() => removeOverlay(n)}>×</button>
             )}
@@ -111,15 +120,15 @@ export default function ControlsRow({
       <select value="" onChange={(e) => { if (e.target.value) addOverlay(e.target.value); e.target.value = ""; }}
         disabled={!addable.length}>
         <option value="">+ add profile…</option>
-        {addable.map((n) => <option key={n} value={n}>{n}</option>)}
+        {addable.map((n) => <option key={n} value={n}>{displayName(n)}</option>)}
       </select>
 
       <div className="tools">
         <button type="button" className="tool" onClick={onOpenProfileMapping} title="Review and assign FEMA frequency/use for each extracted profile">Profile Mapping</button>
         <button type="button" className="tool" onClick={onOpenEditProfileTable} title="Open a full-width engineering profile table">Edit Profile Table</button>
         <button type="button" className="tool" onClick={onOpenPanelSetup} title="Open the current panel layout workspace">Panel Setup</button>
-        <button type="button" className="tool" onClick={onAutoLetter} title="Auto-letter cross sections">Letters</button>
-        <button type="button" className="tool" onClick={onFixDrawdowns} title="Fix drawdowns (all profiles)">Drawdowns</button>
+        <button type="button" className="tool" onClick={onAutoLetter} title="Review options before automatically lettering cross sections">Auto Letters</button>
+        <button type="button" className="tool" onClick={onFixDrawdowns} title="Review options before adjusting working WSEL drawdowns">Fix Drawdowns</button>
         <button type="button" className="tool" onClick={onRecalcCumdist} title="Recalculate CUMDIST">CUMDIST</button>
         <label className="tool-check" title="Import HEC-RAS node names as letters/text">
           <input type="checkbox" checked={useNodeNames} onChange={(e) => onNodeNames(e.target.checked)} />
@@ -170,9 +179,13 @@ export default function ControlsRow({
           onKeyDown={(e) => { if (e.key === "Enter") onEndElevationCommit && onEndElevationCommit((e.target as HTMLInputElement).value); }}
           style={{ width: 110, flex: "0 0 auto" }}
         />
+        <button type="button" className="tool" onClick={onAutoEndElevation} disabled={!onAutoEndElevation}
+          title="Set End Elevation from the current plotted profile data">
+          Auto End
+        </button>
       </div>
 
-      <button onClick={onOpenExport}>Export PDF / DXF…</button>
-    </div>
+      <button className="button button--primary" onClick={onOpenExport}>Export…</button>
+    </nav>
   );
 }

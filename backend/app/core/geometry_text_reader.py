@@ -21,6 +21,11 @@ class GeometryTextStructure:
     barrel_us_station: float | None = None
     barrel_ds_station: float | None = None
     name: str = ""
+    source_path: str = ""
+    source_line: int = 0
+    culvert_records: list[str] = field(default_factory=list)
+    deck_header: list[str] = field(default_factory=list)
+
 
 
 def _parse_float(value: str | None) -> float | None:
@@ -63,9 +68,13 @@ def parse_geometry_text_structures(path: str | Path) -> list[GeometryTextStructu
     lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     entries: list[GeometryTextStructure] = []
     i = 0
+    river, reach = "", ""
 
     while i < len(lines):
         line = lines[i].strip()
+        if line.startswith("River Reach="):
+            parts = line.split("=", 1)[1].split(",", 1)
+            river, reach = (parts[0].strip(), parts[1].strip()) if len(parts) == 2 else ("", "")
         if "Type RM Length L Ch R" not in line:
             i += 1
             continue
@@ -89,7 +98,7 @@ def parse_geometry_text_structures(path: str | Path) -> list[GeometryTextStructu
         k = i + 2
         while k < len(lines):
             candidate = lines[k].strip()
-            if "Type RM Length L Ch R" in candidate:
+            if "Type RM Length L Ch R" in candidate or candidate.startswith("River Reach="):
                 break
             if "Culvert=" in candidate:
                 break
@@ -122,13 +131,18 @@ def parse_geometry_text_structures(path: str | Path) -> list[GeometryTextStructu
             k += 1
 
         culvert_line = ""
+        culvert_records = []
+        deck_header = []
         for idx in range(i + 2, len(lines)):
             cand = lines[idx].strip()
-            if "Type RM Length L Ch R" in cand:
+            if "Type RM Length L Ch R" in cand or cand.startswith("River Reach="):
                 break
             if "Culvert=" in cand:
-                culvert_line = cand
-                break
+                culvert_records.append(cand)
+            if cand.startswith("Deck Dist Width") and idx + 1 < len(lines):
+                deck_header = [v.strip() for v in lines[idx + 1].split(",")]
+        if len(culvert_records) == 1:
+            culvert_line = culvert_records[0]
 
         rise = None
         length = None
@@ -151,8 +165,8 @@ def parse_geometry_text_structures(path: str | Path) -> list[GeometryTextStructu
                     name = parts[13]
 
         entry = GeometryTextStructure(
-            river="",
-            reach="",
+            river=river,
+            reach=reach,
             rs=block_rs,
             type=_extract_type(type_line),
             deck_up=deck_up,
@@ -163,7 +177,8 @@ def parse_geometry_text_structures(path: str | Path) -> list[GeometryTextStructu
             invert_ds=invert_ds,
             barrel_us_station=barrel_us_station,
             barrel_ds_station=barrel_ds_station,
-            name=name,
+            name=name, source_path=str(file_path), source_line=i+1,
+            culvert_records=culvert_records, deck_header=deck_header,
         )
         entries.append(entry)
         i = max(i + 1, k)

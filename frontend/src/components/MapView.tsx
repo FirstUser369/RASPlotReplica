@@ -3,13 +3,13 @@ import { useEffect, useRef } from "react";
 
 type Props = {
   geojson: GeoJSON.FeatureCollection;
-  onClickRs: (rs: string) => void;
+  onClickXs: (xsId: string) => void;
 };
 
 // Lightweight map view (M5): show reach centerline, cross-sections, structures,
 // basemap from USGS national map (no token). Click a cross-section → jump on
 // the profile above.
-export default function MapView({ geojson, onClickRs }: Props) {
+export default function MapView({ geojson, onClickXs }: Props) {
   const mapEl = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
@@ -71,7 +71,7 @@ export default function MapView({ geojson, onClickRs }: Props) {
 
       map.on("click", "xs", (e: any) => {
         const f = e.features?.[0];
-        if (f) onClickRs(String(f.properties?.rs));
+        if (f?.properties?.xs_id) onClickXs(String(f.properties.xs_id));
       });
     });
 
@@ -79,9 +79,9 @@ export default function MapView({ geojson, onClickRs }: Props) {
       map.remove();
       mapRef.current = null;
     };
-  }, [geojson, onClickRs]);
+  }, [geojson, onClickXs]);
 
-  return <div ref={mapEl} style={{ width: "100%", height: "100%" }} />;
+  return <div ref={mapEl} className="map-canvas" aria-label="HEC-RAS model map" />;
 }
 
 function bounds(fc: GeoJSON.FeatureCollection): [[number, number], [number, number]] {

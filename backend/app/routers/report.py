@@ -3,9 +3,11 @@
 Uses the session RasplotDatabase for working table, panels, styling and header.
 """
 from __future__ import annotations
+from ..core.hydraulics import segments, resolve_profiles, profile_label
 
 import os
 import tempfile
+import textwrap
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,18 +21,28 @@ from matplotlib.lines import Line2D
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..core.export_geometry import (page_dimensions, plot_dimensions, validate_scales, validate_export, ExportGeometryError, DXF_VERSIONS, LEFT, BOTTOM)
+from ..core.structure_model import export_faces
 from ..core.merge import compute_cumdist, MergedReach
 from ..core.rasplot_db import (
     PAGE_SIZES, RasplotDatabase, WorkHeader, PanelDef, ProfileMeta,
     distance_unit_factor, auto_panels, model_station_extent,
 )
 from ..core.dxf_export import export_dxf, clip_station_elevation_polyline
+from ..core.cad_review_export import export_cad_review_package
 from ..core.fdt import render_fdt_pdf, STANDARD_FOOTNOTES
 from ..core.firm_export import export_firm_shapefiles, zip_firm_export
 from .hecras_api import _SESSIONS, _session_db
 
 
-router = APIRouter(prefix="/api/report")
+from copy import deepcopy
+from ..core.local_state import LocalRoute, register_artifact, owned_path, artifact_name, cache_root, require_artifact_capacity
+from ..core.state_contract import require_stationing, panels_stale, require_revision, engineering_version
+from ..core.errors import AppError, log
+from ..core.local_state import discard_failed_artifact
+from ..core.engineering_drawing import DrawingBuildConfig, build_engineering_drawing
+
+router = APIRouter(route_class=LocalRoute, prefix="/api/report")
 
 
 # --------------------------------------------------------------------------- #
@@ -48,19 +60,17 @@ def render_profile_pdf_from_db(
     v_scale: float | None = None,
     custom_page: tuple[float, float] | None = None,
     revision_interval: tuple[float, float] | None = None,
+    drawing_config: DrawingBuildConfig | None = None,
 ) -> str:
     header = db.header
     page_size = page_size or header.page_size or "11x17"
     h_scale = float(h_scale if h_scale is not None else header.h_scale)
     v_scale = float(v_scale if v_scale is not None else header.v_scale)
-    if custom_page:
-        page_w, page_h = custom_page
-    else:
-        page_w, page_h = PAGE_SIZES.get(page_size, (17.0, 11.0))
+    validate_scales(h_scale, v_scale)
+    page_w, page_h = page_dimensions(page_size, custom_page)
 
-    meta_by = {p.name: p for p in db.profiles}
     if profile_names:
-        selected = [meta_by[n] for n in profile_names if n in meta_by]
+        selected = resolve_profiles(db.profiles,profile_names)
     else:
         selected = [p for p in db.profiles if p.selected] or list(db.profiles[:1])
 
@@ -68,141 +78,150 @@ def render_profile_pdf_from_db(
     if not panels:
         panels = auto_panels(db.working, h_scale=h_scale, v_scale=v_scale, page_size=page_size)
 
-    xs = [r for r in db.working if r.kind == "xs"]
-    structs = [r for r in db.working if r.kind == "struct"]
-    cumdist = [r.cumdist for r in xs]
-    inv = [r.minchel if r.minchel is not None else float("nan") for r in xs]
     unit_factor = distance_unit_factor(header.unit)
-
+    drawing = build_engineering_drawing(
+        db, panels, [profile.profile_id for profile in selected],
+        revision=revision_interval, page_size=page_size, custom_page=custom_page,
+        config=drawing_config)
+    profile_labels = {profile.profile_id: profile.legend_text for profile in drawing.profiles}
     pdf = PdfPages(out_path)
     try:
-        for i, panel in enumerate(panels):
-            fig, ax = plt.subplots(figsize=(page_w, page_h))
-            clip_start = panel.start_station
-            clip_end = panel.end_station
-            if revision_interval is not None:
-                clip_start = max(clip_start, revision_interval[0])
-                clip_end = min(clip_end, revision_interval[1])
-            # invert
-            clipped_invert = clip_station_elevation_polyline(
-                [(x, y) for x, y in zip(cumdist, inv) if y == y], clip_start, clip_end,
-            )
-            ax.plot(
-                [point[0] for point in clipped_invert],
-                [point[1] for point in clipped_invert],
-                color="black", linewidth=0.9, label="STREAM BED",
-            )
-            legend_handles = [Line2D([0], [0], color="black", lw=0.9, label="STREAM BED")]
-            for pmeta in selected:
-                profile_points = [
-                    (r.cumdist, value) for r in xs
-                    if (value := r.profiles.get(pmeta.name)) is not None
-                ]
-                clipped_profile = clip_station_elevation_polyline(
-                    profile_points, clip_start, clip_end,
+        for panel, drawing_panel in zip(panels, drawing.panels):
+            plot_w, plot_h = plot_dimensions(panel, (page_w, page_h))
+            fig = plt.figure(figsize=(page_w, page_h), layout="none")
+            try:
+                ax = fig.add_axes([LEFT / page_w, BOTTOM / page_h,
+                                   plot_w / page_w, plot_h / page_h])
+                ax.set_xlim(drawing_panel.bounds.x_min, drawing_panel.bounds.x_max)
+                ax.set_ylim(drawing_panel.bounds.y_min, drawing_panel.bounds.y_max)
+                for grid_line in drawing_panel.grid_lines:
+                    color = "#7f8992" if grid_line.major else "#d7dce0"
+                    width = 0.45 if grid_line.major else 0.18
+                    if grid_line.axis == "STATION":
+                        ax.axvline(grid_line.coordinate, color=color, linewidth=width, zorder=0)
+                    else:
+                        ax.axhline(grid_line.coordinate, color=color, linewidth=width, zorder=0)
+
+                for polyline in drawing_panel.polylines:
+                    if len(polyline.points) < 2:
+                        continue
+                    is_profile = polyline.kind == "PROFILE"
+                    rendered_points = list(polyline.points)
+                    if polyline.closed and rendered_points:
+                        rendered_points.append(rendered_points[0])
+                    ax.plot(
+                        [point.x for point in rendered_points],
+                        [point.y for point in rendered_points],
+                        color=polyline.color if is_profile else "#111111",
+                        linewidth=max(0.35, polyline.lineweight * 4) if is_profile else 0.8,
+                        linestyle=_mpl_ls(polyline.linetype),
+                        label=profile_labels.get(polyline.profile_id) if is_profile else "Stream bed",
+                        zorder=2, clip_on=True)
+
+                for annotation in drawing_panel.annotations:
+                    if annotation.kind == "BACKWATER":
+                        ax.axhline(annotation.anchor.y, color="#a33b32", linestyle="--",
+                                   linewidth=0.75, zorder=3)
+                    if annotation.kind in {"CROSS_SECTION", "CROSS_SECTION_LOCATION"}:
+                        ax.plot(annotation.anchor.x, annotation.anchor.y, marker="|",
+                                color="#111111", markersize=7, markeredgewidth=0.7,
+                                linestyle="none", zorder=4)
+                    ax.text(
+                        annotation.anchor.x, annotation.anchor.y, annotation.text,
+                        rotation=annotation.rotation_degrees,
+                        fontsize=8 if annotation.kind == "CROSS_SECTION" else 6.5,
+                        fontname="serif" if annotation.kind == "CROSS_SECTION" else "sans-serif",
+                        fontweight="bold" if annotation.kind == "CROSS_SECTION" else "normal",
+                        ha="center" if annotation.kind == "CROSS_SECTION" else "left",
+                        va="bottom", color="#a33b32" if annotation.kind == "BACKWATER" else "#111111",
+                        clip_on=True, zorder=5,
+                        bbox=(dict(boxstyle="round,pad=0.12", fc="white", ec="none", alpha=0.82)
+                              if annotation.kind == "CROSS_SECTION" else None))
+
+                major_stations = [line.coordinate for line in drawing_panel.grid_lines
+                                  if line.axis == "STATION" and line.major]
+                major_elevations = [line.coordinate for line in drawing_panel.grid_lines
+                                    if line.axis == "ELEVATION" and line.major]
+                ax.set_xticks(major_stations)
+                ax.set_yticks(major_elevations)
+                ax.set_xticklabels([f"{tick * unit_factor:g}" for tick in major_stations], fontsize=6.5)
+                ax.set_yticklabels([f"{tick:g}" for tick in major_elevations], fontsize=6.5)
+                ax.tick_params(direction="out", length=2.5, width=0.45, pad=2)
+                for spine in ax.spines.values():
+                    spine.set_linewidth(0.65)
+                ax.set_xlabel(drawing.presentation.horizontal_axis_title, fontsize=8, labelpad=5)
+                ax.set_ylabel(drawing.presentation.vertical_axis_title, fontsize=8, labelpad=6)
+
+                sidebar_x = (LEFT + plot_w + 0.22) / page_w
+                sidebar_y = 1.0 - 0.35 / page_h
+                sidebar_width = page_w - LEFT - plot_w - 0.45
+                text_width = max(18, int(sidebar_width * 72 / 4.2))
+                identity = drawing.identity
+                fig.text(sidebar_x, sidebar_y, drawing.presentation.page_title,
+                         fontsize=10, fontweight="bold", va="top")
+                sidebar_y -= 0.24 / page_h
+                identification = (
+                    (identity.flooding_source_name, 7.5, "bold"),
+                    (identity.stream_name, 7.0, "normal"),
+                    (", ".join(value for value in
+                               (identity.community, identity.county, identity.state) if value), 6.2, "normal"),
+                    (identity.agency, 6.2, "normal"),
                 )
-                ax.plot(
-                        [point[0] for point in clipped_profile],
-                        [point[1] for point in clipped_profile],
-                        color=pmeta.color or "#196bd6",
-                        linewidth=(pmeta.lineweight or 0.3) * 4,
-                        linestyle=_mpl_ls(pmeta.linetype),
-                        label=pmeta.legend_text or pmeta.name)
-                legend_handles.append(Line2D(
-                    [0], [0], color=pmeta.color or "#196bd6",
-                    lw=(pmeta.lineweight or 0.3) * 4,
-                    linestyle=_mpl_ls(pmeta.linetype),
-                    label=pmeta.legend_text or pmeta.name,
-                ))
+                for text, size, weight in identification:
+                    if not text:
+                        continue
+                    wrapped = textwrap.fill(text.upper(), width=text_width)
+                    fig.text(sidebar_x, sidebar_y, wrapped, fontsize=size,
+                             fontweight=weight, va="top")
+                    sidebar_y -= (0.14 * len(wrapped.splitlines()) + 0.04) / page_h
+                fig.text(sidebar_x, sidebar_y, f"PANEL {drawing_panel.display_id}",
+                         fontsize=7.2, fontweight="bold", va="top")
+                sidebar_y -= 0.18 / page_h
+                scale_caption = (
+                    f'H 1" = {drawing_panel.horizontal_scale:g} FT  '
+                    f'V 1" = {drawing_panel.vertical_scale:g} FT')
+                fig.text(sidebar_x, sidebar_y, scale_caption, fontsize=5.8, va="top")
+                sidebar_y -= 0.19 / page_h
+                fig.text(sidebar_x, sidebar_y, drawing.presentation.vertical_datum_disclosure,
+                         fontsize=6.0,
+                         fontweight="bold" if drawing.vertical_datum.upper() == "UNKNOWN" else "normal",
+                         va="top")
+                sidebar_y -= 0.25 / page_h
+                fig.text(sidebar_x, sidebar_y, "LEGEND", fontsize=6.5,
+                         fontweight="bold", va="top")
+                sidebar_y -= 0.17 / page_h
+                for entry in drawing.presentation.legend_entries:
+                    line_x0 = sidebar_x
+                    line_x1 = sidebar_x + min(0.28, sidebar_width * 0.22) / page_w
+                    line_y = sidebar_y - 0.025 / page_h
+                    fig.add_artist(Line2D(
+                        [line_x0, line_x1], [line_y, line_y], transform=fig.transFigure,
+                        color=entry.color,
+                        linewidth=max(0.5, entry.lineweight if entry.kind == "STREAM_BED"
+                                      else entry.lineweight * 4),
+                        linestyle=_mpl_ls(entry.linetype)))
+                    label_x = sidebar_x + min(0.34, sidebar_width * 0.27) / page_w
+                    wrapped = textwrap.fill(entry.label, width=max(12, text_width - 10))
+                    fig.text(label_x, sidebar_y, wrapped, fontsize=5.8, va="top")
+                    sidebar_y -= (0.14 * len(wrapped.splitlines()) + 0.04) / page_h
 
-            panel_w = max(1.0, panel.end_station - panel.start_station)
-            for s in structs:
-                if not (clip_start <= s.cumdist <= clip_end):
-                    continue
-                target = s.cumdist
-                y_bot = s.minchel if s.minchel is not None else panel.start_elevation
-                t = (s.struc or "").upper()
-                if "BRIDGE" in t and s.low_chord is not None and s.high_chord is not None:
-                    ax.add_patch(Rectangle(
-                        (target - panel_w * 0.003, s.low_chord),
-                        panel_w * 0.006, s.high_chord - s.low_chord,
-                        facecolor="0.65", edgecolor="black", linewidth=0.5, zorder=3,
-                    ))
-                    ax.plot([target, target], [y_bot, s.high_chord], color="black", lw=0.6)
-                elif s.high_chord is not None or s.low_chord is not None:
-                    crest = s.high_chord if s.high_chord is not None else s.low_chord
-                    ax.plot([target - panel_w * 0.004, target + panel_w * 0.004],
-                            [crest, crest], color="black", lw=1.2)
-                    ax.plot([target, target], [y_bot, crest], color="black", lw=0.6)
-                ax.text(target, (s.high_chord or s.low_chord or y_bot) + 0.4,
-                        (s.struc or "STR")[:10], rotation=90, fontsize=6, va="bottom")
+                notes = list(drawing.presentation.data_unavailable_footnotes)
+                notes.extend(drawing.presentation.annotation_warnings)
+                if drawing.vertical_datum.upper() == "UNKNOWN":
+                    notes.append("Vertical datum is unknown.")
+                for note in notes:
+                    wrapped = textwrap.fill(note, width=text_width)
+                    fig.text(sidebar_x, sidebar_y, wrapped, fontsize=5.2,
+                             color="#8a3028", va="top")
+                    sidebar_y -= (0.12 * len(wrapped.splitlines()) + 0.03) / page_h
 
-            # letter labels
-            for r in xs:
-                if not r.label_letter:
-                    continue
-                if not (clip_start <= r.cumdist <= clip_end):
-                    continue
-                y = None
-                if selected:
-                    y = r.profiles.get(selected[0].name)
-                if y is None:
-                    y = r.minchel
-                if y is None:
-                    continue
-                ax.text(r.cumdist, y + 0.3, r.label_letter, ha="center", va="bottom",
-                        fontsize=9, fontname="serif", fontweight="bold",
-                        bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7))
-
-            # landmarks
-            for lm in db.landmarks:
-                if clip_start <= lm.distance <= clip_end:
-                    rot = 90 if (lm.orientation or "").lower().startswith("v") else 0
-                    ax.text(lm.distance, lm.elevation, lm.text, rotation=rot,
-                            fontsize=7, ha="left", va="bottom")
-
-            # backwater
-            for pmeta in selected:
-                if pmeta.backwater_elev is None:
-                    continue
-                ax.axhline(pmeta.backwater_elev, color="red", ls="--", lw=0.8)
-                if pmeta.backwater_text:
-                    ax.text(panel.start_station, pmeta.backwater_elev,
-                            "  " + pmeta.backwater_text, color="red", fontsize=7, va="bottom")
-                break
-
-            ax.set_xlim(panel.start_station, panel.end_station)
-            ax.set_ylim(panel.start_elevation, panel.end_elevation)
-            ax.set_xlabel(
-                f"Distance ({header.unit}) above {header.stream_distance_label}",
-                fontsize=8,
-            )
-            ax.set_ylabel(f"Elevation ({header.vertical_datum})", fontsize=8)
-            # rescale x tick labels into display unit
-            if unit_factor != 1.0:
-                ticks = ax.get_xticks()
-                ax.set_xticklabels([f"{t * unit_factor:.0f}" if unit_factor >= 1
-                                   else f"{t * unit_factor:.2f}" for t in ticks], fontsize=7)
-            ax.grid(True, which="both", ls=":", lw=0.4)
-            ax.legend(handles=legend_handles, loc="upper right", fontsize=6, framealpha=0.9)
-
-            # Title block-ish
-            panel_no = panel.panel + header.start_panel_no - 1
-            total = len(panels) + header.start_panel_no - 1
-            title = (
-                f"FLOOD PROFILE\n{header.stream_name.upper()}\n"
-                f"{header.community.upper()}, {header.county.upper()}, {header.state.upper()}\n"
-                f"PANEL {panel_no} OF {total}    "
-                f"H 1\"={panel.h_scale:g} {header.unit}   V 1\"={panel.v_scale:g} FT"
-            )
-            ax.set_title(title, fontsize=8, loc="left")
-            fig.tight_layout()
-            pdf.savefig(fig)
-            plt.close(fig)
+                with matplotlib.rc_context({"savefig.bbox": None}):
+                    pdf.savefig(fig, bbox_inches=None)
+            finally:
+                plt.close(fig)
     finally:
         pdf.close()
     return out_path
-
 
 def _mpl_ls(linetype: str | None) -> str:
     t = (linetype or "CONTINUOUS").upper()
@@ -224,16 +243,18 @@ def _mpl_ls(linetype: str | None) -> str:
 
 class ExportOptions(BaseModel):
     session_id: str
+    expected_engineering_version: str | None = None
     format: str = "pdf"                 # pdf | dxf
     profile_names: list[str] | None = None
     panel_numbers: list[int] | None = None
     page_size: str | None = None
-    custom_page_w: float | None = None
-    custom_page_h: float | None = None
-    h_scale: float | None = None
-    v_scale: float | None = None
+    custom_page_w: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    custom_page_h: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    h_scale: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    v_scale: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     distance_unit: str | None = None
     vertical_datum: str | None = None
+    require_known_datum: bool | None = None
     stream_name: str | None = None
     community: str | None = None
     county: str | None = None
@@ -251,6 +272,14 @@ class ExportOptions(BaseModel):
     single_panel: bool = False
 
 
+class CadReviewPackageOptions(ExportOptions):
+    """One-panel raw station/elevation package for the CAD Review Editor."""
+    format: str = "cad-review-package"
+    use_current_view: bool = False
+    fit_to_one_panel: bool = False
+    single_panel: bool = False
+
+
 class FdtRequest(BaseModel):
     session_id: str
     footnotes: list[str] | None = None
@@ -264,6 +293,7 @@ class FirmExportRequest(BaseModel):
 
 
 class PdfMergeRequest(BaseModel):
+    session_id: str
     paths: list[str]
     out_name: str = "merged.pdf"
 
@@ -285,8 +315,14 @@ def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> list[Panel
         h.state = req.state
     if req.distance_unit is not None:
         h.unit = req.distance_unit
+    if req.require_known_datum is not None:
+        h.require_known_datum=req.require_known_datum
     if req.vertical_datum is not None:
-        h.vertical_datum = req.vertical_datum
+        datum = req.vertical_datum.strip() or "UNKNOWN"
+        if datum.upper() == 'UNKNOWN': datum = 'UNKNOWN'
+        if datum != h.vertical_datum:
+            h.vertical_datum = datum
+            h.datum_provenance = "USER_ENTERED" if datum != "UNKNOWN" else "UNKNOWN"
     if req.start_station_description is not None:
         h.stream_distance_label = req.start_station_description
     if req.panel_no is not None:
@@ -300,9 +336,11 @@ def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> list[Panel
     if req.profile_names:
         sel = set(req.profile_names)
         for p in db.profiles:
-            p.selected = p.name in sel
+            p.selected = p.profile_id in sel
 
     custom = None
+    if (req.custom_page_w is None) != (req.custom_page_h is None):
+        raise HTTPException(400, "Specify both custom page Width and Height in inches.")
     if req.custom_page_w and req.custom_page_h:
         custom = (req.custom_page_w, req.custom_page_h)
 
@@ -347,17 +385,20 @@ def _apply_export_options(db: RasplotDatabase, req: ExportOptions) -> list[Panel
 
 
 def _cache_dir(sid: str) -> str:
-    d = os.path.join(tempfile.gettempdir(), "rasplotreplica", sid)
-    os.makedirs(d, exist_ok=True)
-    return d
+    root = cache_root()
+    directory = (root / sid).resolve()
+    if directory != root / sid:
+        raise HTTPException(400, "Session cache must not be redirected by a filesystem link.")
+    try:
+        directory.relative_to(root)
+    except ValueError:
+        raise HTTPException(400, "Invalid session artifact directory")
+    directory.mkdir(parents=True, exist_ok=True)
+    return str(directory)
 
 
 def _resolved_revision_interval(db: RasplotDatabase) -> tuple[float, float] | None:
-    start = db.header.revision_start_station
-    end = db.header.revision_end_station
-    if start is not None and end is not None:
-        return float(start), float(end)
-    return model_station_extent(db.working)
+    return require_revision(db)
 
 
 @router.post("/export")
@@ -365,66 +406,174 @@ def export_profile(req: ExportOptions) -> dict:
     """Export current view to PDF or DXF with scale/style/page options."""
     if req.session_id not in _SESSIONS:
         raise HTTPException(404, "Unknown session")
-    db = _session_db(req.session_id)
-    export_panels = _apply_export_options(db, req)
+    db = deepcopy(_session_db(req.session_id))
+    require_artifact_capacity(req.session_id)
+    state_version = engineering_version(db)
+    if req.expected_engineering_version is not None and req.expected_engineering_version != state_version:
+        raise HTTPException(409, 'Engineering state changed since Export opened. Close and reopen Export to review the current state.')
+    try:
+        require_stationing(db)
+        require_revision(db)
+        if (req.panel_numbers is not None or not req.use_current_view) and panels_stale(db):
+            raise ValueError("Saved panels need review after engineering changes. Open Panel Setup, review the preserved definitions and Apply before exporting saved panels.")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if req.format.lower() == "dxf" and req.dxf_version not in DXF_VERSIONS:
+        raise HTTPException(400, f"Unsupported DXF version {req.dxf_version!r}; choose {', '.join(DXF_VERSIONS)}.")
+    try:
+        validate_scales(req.h_scale if req.h_scale is not None else db.header.h_scale,
+                        req.v_scale if req.v_scale is not None else db.header.v_scale)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    try:
+        export_panels = _apply_export_options(db, req)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     custom = None
+    if (req.custom_page_w is None) != (req.custom_page_h is None):
+        raise HTTPException(400, "Specify both custom page Width and Height in inches.")
     if req.custom_page_w and req.custom_page_h:
         custom = (req.custom_page_w, req.custom_page_h)
 
-    out_dir = _cache_dir(req.session_id)
-    fmt = (req.format or "pdf").lower()
-    if fmt == "pdf":
-        out_path = os.path.join(out_dir, f"FIS_profile_{req.session_id}.pdf")
-        render_profile_pdf_from_db(
-            out_path, db,
-            profile_names=req.profile_names,
-            panels=export_panels,
-            page_size=db.header.page_size,
-            h_scale=db.header.h_scale, v_scale=db.header.v_scale,
-            custom_page=custom,
-            revision_interval=_resolved_revision_interval(db),
-        )
-    elif fmt == "dxf":
-        out_path = os.path.join(out_dir, f"FIS_profile_{req.session_id}.dxf")
-        export_dxf(
-            out_path, db,
-            profile_names=req.profile_names,
-            panels=export_panels,
-            page_size=db.header.page_size,
-            h_scale=db.header.h_scale, v_scale=db.header.v_scale,
-            dxf_version=req.dxf_version,
-            include_grid=req.include_grid,
-            include_title_block=req.include_title_block,
-            custom_page=custom,
-            revision_interval=_resolved_revision_interval(db),
-        )
-    else:
-        raise HTTPException(400, f"Unsupported format: {fmt}")
-    return {
-        "path": out_path,
-        "size_bytes": os.path.getsize(out_path),
-        "format": fmt,
-        "panel_count": len(export_panels),
-        "h_scale": export_panels[0].h_scale if export_panels else db.header.h_scale,
-        "v_scale": export_panels[0].v_scale if export_panels else db.header.v_scale,
-        "page_size": db.header.page_size,
-    }
+    try:
+        page = page_dimensions(db.header.page_size, custom)
+        selected = resolve_profiles(db.profiles,req.profile_names) if req.profile_names else ([p for p in db.profiles if p.selected] or db.profiles[:1])
+        validate_export(db, export_panels, selected, page, _resolved_revision_interval(db))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    out_path = None
+    try:
+        out_dir = _cache_dir(req.session_id)
+        fmt = (req.format or "pdf").lower()
+        if fmt == "pdf":
+            out_path = os.path.join(out_dir, artifact_name("FIS_profile", ".pdf"))
+            render_profile_pdf_from_db(
+                out_path, db,
+                profile_names=req.profile_names,
+                panels=export_panels,
+                page_size=db.header.page_size,
+                h_scale=db.header.h_scale, v_scale=db.header.v_scale,
+                custom_page=custom,
+                revision_interval=_resolved_revision_interval(db),
+            )
+        elif fmt == "dxf":
+            out_path = os.path.join(out_dir, artifact_name("FIS_profile", ".dxf"))
+            export_dxf(
+                out_path, db,
+                profile_names=req.profile_names,
+                panels=export_panels,
+                page_size=db.header.page_size,
+                h_scale=db.header.h_scale, v_scale=db.header.v_scale,
+                dxf_version=req.dxf_version,
+                include_grid=req.include_grid,
+                include_title_block=req.include_title_block,
+                custom_page=custom,
+                revision_interval=_resolved_revision_interval(db),
+            )
+        else:
+            raise HTTPException(400, f"Unsupported format: {fmt}")
+        size_bytes = os.path.getsize(out_path)
+        register_artifact(req.session_id, out_path)
+        return {
+            "artifact_id": Path(out_path).stem,
+            "session_id": req.session_id,
+            "engineering_version": state_version,
+            "path": out_path,
+            "size_bytes": size_bytes,
+            "format": fmt,
+            "panel_count": len(export_panels),
+            "h_scale": export_panels[0].h_scale if export_panels else db.header.h_scale,
+            "v_scale": export_panels[0].v_scale if export_panels else db.header.v_scale,
+            "page_size": db.header.page_size,
+        }
+    except OSError as exc:
+        discard_failed_artifact(req.session_id, out_path)
+        log.exception('Artifact write/read failure')
+        raise AppError(500, 'FILE_ACCESS', "Export could not write/read its artifact. Check temporary-folder access and free disk space, then retry.") from exc
+    except HTTPException:
+        discard_failed_artifact(req.session_id, out_path)
+        raise
+    except Exception as exc:
+        discard_failed_artifact(req.session_id, out_path)
+        log.exception('Renderer failed after preflight')
+        raise AppError(500, 'EXPORT_FAILURE', "Export rendering failed after engineering preflight. No successful artifact was registered; report this software error with the source and export settings.") from exc
+
+
+@router.post("/cad-review-package")
+def export_cad_review(req: CadReviewPackageOptions) -> dict:
+    """Export one validated panel as aligned raw-coordinate DXF/PNG/PGW."""
+    if req.session_id not in _SESSIONS:
+        raise HTTPException(404, "Unknown session")
+    db = deepcopy(_session_db(req.session_id))
+    require_artifact_capacity(req.session_id)
+    state_version = engineering_version(db)
+    if req.expected_engineering_version is not None and req.expected_engineering_version != state_version:
+        raise HTTPException(409, "Engineering state changed since Export opened. Close and reopen Export to review the current state.")
+    if req.panel_numbers is None or len(req.panel_numbers) != 1:
+        raise HTTPException(400, "CAD Review Package requires exactly one selected saved panel.")
+    try:
+        require_stationing(db)
+        revision = require_revision(db)
+        if panels_stale(db):
+            raise ValueError("Saved panels need review after engineering changes. Open Panel Setup, review the preserved definitions and Apply before exporting saved panels.")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    try:
+        panels = _apply_export_options(db, req)
+        selected = resolve_profiles(db.profiles, req.profile_names) if req.profile_names else ([p for p in db.profiles if p.selected] or db.profiles[:1])
+        custom = (req.custom_page_w, req.custom_page_h) if req.custom_page_w and req.custom_page_h else None
+        page = page_dimensions(db.header.page_size, custom)
+        validate_export(db, panels, selected, page, revision)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    out_path = None
+    try:
+        out_path = os.path.join(_cache_dir(req.session_id), artifact_name("CAD_Review_Package", ".zip"))
+        result = export_cad_review_package(out_path, db, selected, panels[0], revision)
+        register_artifact(req.session_id, out_path)
+        bounds = result["bounds"]
+        return {
+            "artifact_id": Path(out_path).stem,
+            "session_id": req.session_id,
+            "engineering_version": state_version,
+            "path": out_path,
+            "size_bytes": os.path.getsize(out_path),
+            "format": "cad-review-package",
+            "panel_count": 1,
+            "panel_number": panels[0].panel,
+            "bounds": {"x_min": bounds.x_min, "x_max": bounds.x_max,
+                       "y_min": bounds.y_min, "y_max": bounds.y_max},
+            "width_px": result["width_px"], "height_px": result["height_px"],
+            "files": result["files"],
+        }
+    except OSError as exc:
+        discard_failed_artifact(req.session_id, out_path)
+        raise AppError(500, "FILE_ACCESS", "CAD Review Package could not be written. Check temporary-folder access and free disk space, then retry.") from exc
+    except HTTPException:
+        discard_failed_artifact(req.session_id, out_path)
+        raise
+    except Exception as exc:
+        discard_failed_artifact(req.session_id, out_path)
+        log.exception("CAD Review Package renderer failed after preflight")
+        raise AppError(500, "EXPORT_FAILURE", "CAD Review Package rendering failed after engineering preflight. No successful artifact was registered.") from exc
 
 
 # Back-compat alias
 class ReportRequest(BaseModel):
     session_id: str
     profile_names: list[str] | None = None
-    stream_name: str = "STREAM NAME"
-    community: str = "AND INCORPORATED AREAS"
-    county: str = "COUNTY"
-    state: str = "IN"
+    stream_name: str | None = None
+    community: str | None = None
+    county: str | None = None
+    state: str | None = None
     panel_no: int = 1
     h_scale: float = 500.0
     v_scale: float = 5.0
     distance_unit: str = "Feet"
-    vertical_datum: str = "NAVD88"
+    vertical_datum: str | None = None
     start_station_description: str = ""
 
 
@@ -449,6 +598,7 @@ def build_profile_pdf(req: ReportRequest) -> dict:
 
 @router.post("/fdt.pdf")
 def build_fdt(req: FdtRequest) -> dict:
+    raise AppError(403, "UNSUPPORTED_SCHEMA", "FDT is disabled: regulatory semantics and compliance are not validated.")
     if req.session_id not in _SESSIONS:
         raise HTTPException(404, "Unknown session")
     db = _session_db(req.session_id)
@@ -463,6 +613,7 @@ def build_fdt(req: FdtRequest) -> dict:
 
 @router.post("/firm.zip")
 def build_firm(req: FirmExportRequest) -> dict:
+    raise AppError(403, "UNSUPPORTED_SCHEMA", "FIRM is disabled: coordinates, hydraulic semantics and compliance are not validated.")
     if req.session_id not in _SESSIONS:
         raise HTTPException(404, "Unknown session")
     db = _session_db(req.session_id)
@@ -478,22 +629,38 @@ def merge_pdfs(req: PdfMergeRequest) -> dict:
     from pypdf import PdfWriter, PdfReader
     if not req.paths:
         raise HTTPException(400, "No paths provided")
-    writer = PdfWriter()
-    for p in req.paths:
-        pp = Path(p)
-        if not pp.is_file():
-            raise HTTPException(404, f"Missing: {p}")
-        # safety: only temp cache trees
-        if "rasplotreplica" not in str(pp.resolve()).lower():
-            raise HTTPException(400, "Path outside session cache")
-        reader = PdfReader(str(pp))
-        for page in reader.pages:
-            writer.add_page(page)
-    out = os.path.join(tempfile.gettempdir(), "rasplotreplica", req.out_name)
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "wb") as fh:
-        writer.write(fh)
-    return {"path": out, "size_bytes": os.path.getsize(out)}
+    if req.session_id not in _SESSIONS:
+        raise HTTPException(404, "Unknown session")
+    if Path(req.out_name).name != req.out_name or any(c in req.out_name for c in ("/", "\\", ":")) or not req.out_name.lower().endswith(".pdf"):
+        raise HTTPException(400, "Output must be a simple PDF filename, without directories or traversal.")
+    from pypdf.errors import PdfReadError
+    require_artifact_capacity(req.session_id)
+    out = None
+    try:
+        writer = PdfWriter()
+        for path in req.paths:
+            pp = owned_path(req.session_id, path)
+            if pp.suffix.lower() != '.pdf':
+                raise AppError(400, 'INVALID_INPUT', 'Merge inputs must be generated PDF artifacts.')
+            if not pp.is_file():
+                raise AppError(404, 'FILE_ACCESS', 'Merge input no longer exists; generate it again.')
+            reader = PdfReader(str(pp))
+            for page in reader.pages:
+                writer.add_page(page)
+        out = str(Path(_cache_dir(req.session_id)) / artifact_name(Path(req.out_name).stem, '.pdf'))
+        with open(out, 'wb') as fh:
+            writer.write(fh)
+        register_artifact(req.session_id, out)
+        return {'path': out, 'size_bytes': os.path.getsize(out)}
+    except PdfReadError as exc:
+        discard_failed_artifact(req.session_id, out)
+        log.exception('Invalid PDF merge input')
+        raise AppError(400, 'INVALID_INPUT', 'A merge input is not a readable PDF. Regenerate that artifact.') from exc
+    except OSError as exc:
+        discard_failed_artifact(req.session_id, out)
+        log.exception('PDF merge file access failure')
+        raise AppError(500, 'FILE_ACCESS', 'Unable to read/write PDF merge artifacts. Check temporary-folder access and free disk space.') from exc
+
 
 
 @router.get("/page-sizes")

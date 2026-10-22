@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { contextVersion, StaleResponse } from "../api/context";
 
 export type ProfileMetaRow = {
   name: string;
+  profile_id?: string;
+  result_type?: string;
   frequency: string;
   backwater_elev: number | null;
   backwater_text: string;
@@ -14,7 +17,7 @@ export type ProfileMetaRow = {
 };
 
 const frequencyOptions: Array<{ value: string; label: string }> = [
-  { value: "", label: "Unmapped / Not Used" },
+  { value: "", label: "UNKNOWN / Unmapped" },
   { value: "1%", label: "1%-annual-chance" },
   { value: "1%+", label: "1%+" },
   { value: "0.2%", label: "0.2%-annual-chance" },
@@ -28,7 +31,7 @@ const frequencyOptions: Array<{ value: string; label: string }> = [
 ];
 
 function toDisplayValue(value: string): string {
-  if (!value) return "Unmapped / Not Used";
+  if (!value) return "UNKNOWN / Unmapped";
   const match = frequencyOptions.find((opt) => opt.value === value);
   return match ? match.label : value;
 }
@@ -55,11 +58,25 @@ export default function ProfileMappingDialog({
 }: Props) {
   const [drafts, setDrafts] = useState<ProfileMetaRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lifetime = useRef(0);
+  useEffect(() => {
+    lifetime.current++;
+    setSaving(false); setError(null);
+    return () => { lifetime.current++; };
+  }, [open, sessionId]);
 
   useEffect(() => {
     if (!open) return;
     setDrafts(profiles.map((p) => ({ ...p, backwater_text: p.backwater_text ?? "" })));
   }, [open, profiles]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, saving, onClose]);
 
   const rows = useMemo(() => drafts, [drafts]);
 
@@ -70,25 +87,32 @@ export default function ProfileMappingDialog({
   }
 
   async function handleSave() {
+    const version = contextVersion();
+    const token = lifetime.current;
+    if (saving) return;
+    setError(null);
     setSaving(true);
     try {
       await onSave(rows);
-      onClose();
+      if (version === contextVersion() && token === lifetime.current) onClose();
+    } catch (e: any) {
+      if (!(e instanceof StaleResponse) && version === contextVersion() && token === lifetime.current) setError(String(e.message ?? e));
     } finally {
-      setSaving(false);
+      if (version === contextVersion() && token === lifetime.current) setSaving(false);
     }
   }
 
   return (
-    <div className="profile-mapping-backdrop" onClick={onClose}>
-      <div className="profile-mapping-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="profile-mapping-backdrop" onClick={() => { if (!saving) onClose(); }}>
+      <div className={`profile-mapping-modal ${rows.length <= 1 ? "profile-mapping-modal--compact" : ""}`} role="dialog" aria-modal="true" aria-labelledby="profile-mapping-title" onClick={(e) => e.stopPropagation()}>
         <header className="profile-mapping-header">
-          <h2>Profile Mapping</h2>
+          <div><span className="eyebrow">Profile metadata</span><h2 id="profile-mapping-title">Profile Mapping</h2></div>
           <button className="profile-mapping-close" type="button" onClick={onClose} aria-label="Close profile mapping">×</button>
         </header>
 
         <div className="profile-mapping-context">
-          <span>{rows.length} profile mappings</span>
+          <span>Map each source profile deliberately. Frequencies are never inferred from profile names.</span>
+          <span className="status-badge status-badge--neutral">{rows.length} profile{rows.length === 1 ? "" : "s"}</span>
         </div>
 
         <div className="profile-mapping-body">
@@ -103,16 +127,18 @@ export default function ProfileMappingDialog({
               <tr>
                 <th>HEC-RAS Profile</th>
                 <th>FEMA Frequency / Use</th>
-                <th>Backwater Elevation</th>
+                <th>Backwater Elevation (user reference)</th>
                 <th>Backwater Text</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row, index) => (
-                <tr key={`${row.name}-${index}`}>
-                  <td>{row.name}</td>
+                <tr key={`${row.name}-${index}`} className={!row.frequency ? "mapping-row--unmapped" : "mapping-row--mapped"}>
+                  <td title={row.profile_id}>{row.name}{rows.filter(p => p.name === row.name).length > 1 ? ` [${row.profile_id}]` : ""}{row.result_type === "DERIVED_MAXIMUM_ENVELOPE" ? " (derived saved-timestep envelope)" : ""}</td>
                   <td>
                     <select
+                      disabled={row.result_type === "DERIVED_MAXIMUM_ENVELOPE"}
+                      aria-label={`Frequency or use for ${row.name}`}
                       value={toDisplayValue(row.frequency ?? "")}
                       onChange={(e) => {
                         const next = toStoredValue(e.target.value);
@@ -129,6 +155,7 @@ export default function ProfileMappingDialog({
                   <td>
                     <input
                       type="number"
+                      aria-label={`Backwater elevation for ${row.name}`}
                       value={row.backwater_elev ?? ""}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -140,6 +167,7 @@ export default function ProfileMappingDialog({
                   </td>
                   <td>
                     <input
+                      aria-label={`Backwater text for ${row.name}`}
                       value={row.backwater_text ?? ""}
                       onChange={(e) => updateRow(index, { backwater_text: e.target.value })}
                     />
@@ -151,6 +179,7 @@ export default function ProfileMappingDialog({
         </div>
 
         <footer className="profile-mapping-footer">
+          {error && <span role="alert">{error}</span>}
           <button type="button" className="profile-mapping-secondary" onClick={onClose}>Cancel</button>
           <button type="button" disabled={saving} onClick={handleSave}>
             {saving ? "Saving…" : "Save / Apply"}

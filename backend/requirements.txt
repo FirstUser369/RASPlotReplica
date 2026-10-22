@@ -1,5 +1,6 @@
 # RASPlotReplica backend dependencies
-# Python 3.12+ recommended
+# Validated portable runtime: CPython 3.11.3 Windows x64.
+# Release manifests record all installed dependency versions (including transitives).
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pydantic==2.10.4
@@ -12,6 +13,6 @@ reportlab==4.2.5
 matplotlib==3.10.0
 pyproj==3.7.0
 python-multipart==0.0.20
-ezdxf>=1.3.0
-pypdf>=5.0.0
-pyshp>=2.3.1
+ezdxf==1.4.4
+pypdf==6.15.0
+pyshp==3.1.6

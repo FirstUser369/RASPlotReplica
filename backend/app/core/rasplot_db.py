@@ -4,6 +4,7 @@ Tables mirror the Access schema (user guide p.12 / §5.3 / §6.x) without MS Acc
   working, profiles, floodway, landmark, panel, workheader, frequencies.
 """
 from __future__ import annotations
+from .hydraulics import prepare_profiles, normalize_value
 
 import math
 from copy import deepcopy
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Optional
 
-from .geometry_text_reader import parse_geometry_text_structures
+from .structure_model import StructureModel, normalize, linked_text, sync_rows, models_from_rows
 
 
 # Default FEMA flood frequencies (RASPLOT v3 §4.5)
@@ -94,7 +95,7 @@ class WorkingRow:
     rs: str
     struc: str = ""                 # e.g. BRIDGE-Dn, CULVERT-Up, or ""
     length_chnl: float = 0.0
-    cumdist: float = 0.0
+    cumdist: float | None = 0.0
     minchel: Optional[float] = None
     low_chord: Optional[float] = None
     high_chord: Optional[float] = None
@@ -110,18 +111,36 @@ class WorkingRow:
     tw_connectivity: list[tuple[str, float]] = field(default_factory=list)
     lateral_hw_distance: Optional[float] = None
     lateral_tw_distance: Optional[float] = None
-    canonical_length_chnl: Optional[float] = None
+    canonical_length_chnl: Optional[float] = None  # immutable source (compatibility field)
+    source_length_chnl: Optional[float] = None  # original HEC-RAS value; never patched
     connected_ds_rs: str = ""
     culvert_us_gap: Optional[float] = None
     culvert_barrel_length: Optional[float] = None
     culvert_ds_residual: Optional[float] = None
     structure_partition_valid: Optional[bool] = None
     structure_partition_warning: str = ""
+    structure_model: StructureModel | None = None
+    hydraulic_values: dict = field(default_factory=dict)
+    raw_profiles: dict = field(default_factory=dict)
+    adjustments: list[dict] = field(default_factory=list)
+    ground_provenance: dict = field(default_factory=dict)
+    source_identity: str = ""       # stable model/source identity for ordinary XS
+    row_identity: str = ""          # stable identity for XS and synthetic structure rows
 
 
 @dataclass
 class ProfileMeta:
     name: str                       # HEC-RAS profile name
+    profile_id: str = ""
+    key: str = ""
+    source_name: str = ""
+    display_name: str = ""
+    annual_chance_percent: float | None = None
+    result_type: str = "SOURCE_WSEL"
+    source_path: str = ""
+    source_dataset: str = ""
+    mapping_provenance: str = "UNKNOWN"
+    backwater_provenance: str = "USER_ENTERED_REFERENCE_ONLY"
     frequency: str = ""             # FEMA frequency label
     backwater_elev: Optional[float] = None
     backwater_text: str = ""
@@ -151,10 +170,40 @@ class PanelDef:
     end_station: float
     start_elevation: float
     end_elevation: float
-    panel_x: float = 0.0
-    panel_y: float = 0.0
+    panel_x: float | None = None
+    panel_y: float | None = None
     h_scale: float = 500.0          # ft per inch
     v_scale: float = 5.0            # ft per inch
+    panel_suffix: str = ""
+
+    def __post_init__(self) -> None:
+        self.panel_suffix = normalize_panel_suffix(self.panel_suffix)
+
+    @property
+    def display_id(self) -> str:
+        return format_panel_display_id(self.panel, self.panel_suffix)
+
+    def to_dict(self) -> dict:
+        return {**asdict(self), "display_id": self.display_id}
+
+
+def normalize_panel_suffix(value: str | None) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("Panel suffix must be text.")
+    suffix = value.strip()
+    if not suffix:
+        return ""
+    if not suffix.isascii() or not suffix.isalpha():
+        raise ValueError("Panel suffix must contain only ASCII letters A-Z.")
+    if len(suffix) > 3:
+        raise ValueError("Panel suffix cannot exceed three letters.")
+    return suffix.upper()
+
+
+def format_panel_display_id(panel_number: int, panel_suffix: str | None = "") -> str:
+    return f"{panel_number}{normalize_panel_suffix(panel_suffix)}"
 
 
 @dataclass
@@ -175,13 +224,16 @@ class FloodwayRow:
 
 @dataclass
 class WorkHeader:
-    community: str = "AND INCORPORATED AREAS"
-    county: str = "COUNTY"
-    state: str = "IN"
-    stream_name: str = "STREAM NAME"
+    community: str = ""
+    county: str = ""
+    state: str = ""
+    stream_name: str = ""
     stream_distance_label: str = ""
     unit: str = "Feet"              # Feet|Hundred Feet|Thousand Feet|Meters|Kilometers|Miles
-    vertical_datum: str = "NAVD88"
+    vertical_datum: str = "UNKNOWN"
+    source_datum: str = "UNKNOWN"
+    datum_provenance: str = "UNKNOWN"
+    require_known_datum: bool = False
     start_panel_no: int = 1
     h_scale: float = 500.0
     v_scale: float = 5.0
@@ -203,15 +255,43 @@ class RasplotDatabase:
     header: WorkHeader = field(default_factory=WorkHeader)
     frequencies: list[dict[str, Any]] = field(default_factory=lambda: deepcopy(DEFAULT_FREQUENCIES))
     use_node_names: bool = False
+    source_units: str = "INTERNAL_US_CUSTOMARY"
+    stationing_start: float = 0.0
+    stationing_signature: str = ""
+    panel_signature: str = ""
+    panel_review_state: str = "UNSPECIFIED"
+    structure_inventory: dict = field(default_factory=lambda: {"state": "VERIFIED_NONE"})
+    flooding_source: dict = field(default_factory=dict)
+    distance_ledger: dict = field(default_factory=dict)
     next_id: int = 1
     next_landmark_id: int = 1
 
     def to_dict(self) -> dict:
+        from .state_contract import stationing_dirty, panels_stale, engineering_version
+        inventory = dict(self.structure_inventory)
+        inventory['classification'] = {
+            'VERIFIED_NONE': 'VERIFIED_NO_STRUCTURES',
+            'VERIFIED_PARSED': 'PARSED_STRUCTURES',
+            'INCOMPLETE': 'INCOMPLETE_STRUCTURE_INVENTORY',
+            'MALFORMED': 'INVALID_STRUCTURE_DATA',
+            'UNSUPPORTED': 'UNSUPPORTED_STRUCTURES_PRESENT',
+        }.get(inventory.get('state'), 'INCOMPLETE_STRUCTURE_INVENTORY')
+        if inventory.get('state') == 'VERIFIED_PARSED' and any(m.status != 'VALIDATED' for m in models_from_rows(self.working)):
+            inventory['classification'] = 'UNSUPPORTED_STRUCTURES_PRESENT'
         return {
+            "engineering_version": engineering_version(self),
+            "stationing_dirty": stationing_dirty(self),
+            "panels_stale": panels_stale(self),
+            "panel_review_state": self.panel_review_state,
+            "structure_inventory": inventory,
+            "flooding_source": deepcopy(self.flooding_source),
+            "distance_ledger": deepcopy(self.distance_ledger),
+            "source_units": self.source_units,
             "working": [asdict(r) for r in self.working],
+            "structures": [m.to_dict() for m in models_from_rows(self.working)],
             "profiles": [asdict(p) for p in self.profiles],
             "landmarks": [asdict(l) for l in self.landmarks],
-            "panels": [asdict(p) for p in self.panels],
+            "panels": [p.to_dict() for p in self.panels],
             "floodway": [asdict(f) for f in self.floodway],
             "header": asdict(self.header),
             "frequencies": self.frequencies,
@@ -250,29 +330,6 @@ def _interpolate_station_elevation(pairs: list[tuple[float, float]], station: fl
             t = (station - x0) / (x1 - x0)
             return y0 + t * (y1 - y0)
     return ordered[-1][1]
-
-
-def _geometry_text_structures_for_plan(plan: Any) -> dict[str, Any]:
-    plan_path = getattr(plan, "plan_path", None) or getattr(plan, "results_path", None) or getattr(plan, "plan_hdf_path", None)
-    if plan_path is None:
-        return {}
-    plan_file = Path(plan_path)
-    if not plan_file.exists():
-        return {}
-    candidates: list[Path] = []
-    base_stem = plan_file.stem.split(".")[0]
-    for candidate in plan_file.parent.glob(f"{base_stem}.g*"):
-        if candidate.is_file() and candidate.suffix.lower() not in {".hdf", ".bak"}:
-            candidates.append(candidate)
-    if not candidates:
-        return {}
-    by_rs: dict[str, Any] = {}
-    for candidate in sorted(candidates):
-        for entry in parse_geometry_text_structures(candidate):
-            rs_key = str(entry.rs).strip()
-            if rs_key:
-                by_rs[rs_key] = entry
-    return by_rs
 
 
 def _index_to_letter(i: int) -> str:
@@ -320,176 +377,69 @@ def build_working_from_plan(
         cumdist = compute_cumdist(reach)
     xs_list = reach.cross_sections
     structs = structures if structures is not None else reach.structures
-    profile_names = [p.name for p in plan.profiles]
-    geometry_text_structures = _geometry_text_structures_for_plan(plan)
-
-    rows: list[WorkingRow] = []
-    rid = 1
-
-    # Laterals use their explicit connected US XS when available. Other
-    # structure types retain nearest-RS association pending separate validation.
-    struct_at: dict[int, list] = {}
-    for s in structs:
-        explicit_i = None
-        if (s.type or "").upper() == "LATERAL" and s.us_rs:
-            explicit_i = next(
-                (i for i, xs in enumerate(xs_list) if xs.rs == s.us_rs),
-                None,
-            )
-        if explicit_i is not None:
-            struct_at.setdefault(explicit_i, []).append(s)
-            continue
-        try:
-            srs = float(s.rs)
-        except Exception:
-            continue
-        best_i, best_d = 0, float("inf")
-        for i, xs in enumerate(xs_list):
-            try:
-                d = abs(float(xs.rs) - srs)
-            except Exception:
-                continue
-            if d < best_d:
-                best_d, best_i = d, i
-        struct_at.setdefault(best_i, []).append(s)
-
+    prepare_profiles(plan.profiles)
+    profile_names = [p.key for p in plan.profiles]
+    profile_values_by_id = {p.key: p.values_by_identity() for p in plan.profiles}
+    from .hdf_reader import AlignmentError
+    from .model_topology import stable_id
+    model_id = getattr(plan, "model_id", "") or str(getattr(plan, "plan_path", "UNKNOWN"))
+    expected_ids = {xs.identity for r in plan.reaches for xs in r.cross_sections}
+    if len(profile_values_by_id) != len(plan.profiles):
+        raise AlignmentError("Duplicate profile names cannot identify hydraulic results uniquely.")
+    for name, values in profile_values_by_id.items():
+        if set(values) != expected_ids:
+            raise AlignmentError(f"Profile {name!r}: geometry/result identities do not match.")
+    # Ordinary XS retain their Phase 1 source/result/ordering contract.
+    xs_rows = []
     for i, xs in enumerate(xs_list):
-        profs = {
-            p.name: (p.wsel[i] if i < len(p.wsel) else None)
-            for p in plan.profiles
-        }
-        row_length_chnl = xs.length_channel
-        if i == len(xs_list) - 1:
-            row_length_chnl = 0.0
-        rows.append(WorkingRow(
-            id=rid, river=xs.river, reach=xs.reach, rs=xs.rs,
-            length_chnl=row_length_chnl, cumdist=cumdist[i] if i < len(cumdist) else 0.0,
-            minchel=xs.minchel, profiles=profs, kind="xs", source_xs_index=i,
-            canonical_length_chnl=xs.length_channel,
+        xs_rows.append(WorkingRow(
+            id=0, river=xs.river, reach=xs.reach, rs=xs.rs,
+            length_chnl=xs.length_channel if i < len(xs_list)-1 else 0.0,
+            cumdist=cumdist[i], minchel=xs.minchel,
+            profiles={p.key: profile_values_by_id[p.key][xs.identity] for p in plan.profiles},
+            raw_profiles={p.profile_id: profile_values_by_id[p.key][xs.identity] for p in plan.profiles},
+            hydraulic_values={p.profile_id:{**deepcopy(p.values[p.xs_ids.index(xs.identity)]),"profile_id":p.profile_id,"profile_key":p.key,"xs_identity":xs.identity,"source_path":p.source_path,"source_dataset":p.source_dataset,"result_type":p.result_type,"provenance":"SOURCE" if p.result_type!="DERIVED_MAXIMUM_ENVELOPE" else "DERIVED"} for p in plan.profiles},
+            ground_provenance=deepcopy(xs.ground_provenance),
+            kind="xs", source_xs_index=i, canonical_length_chnl=xs.length_channel,
+            source_length_chnl=xs.length_channel,
+            source_identity=stable_id("xs", model_id, xs.river, xs.reach, xs.rs),
+            row_identity=stable_id("xs", model_id, xs.river, xs.reach, xs.rs),
         ))
-        rid += 1
-        for s in struct_at.get(i, []):
-            s_type = (s.type or "STRUCTURE").upper()
-            if s_type == "CULVERT" and s.us_rs and s.ds_rs and s.culvert_length is not None and s.culvert_us_distance is not None and s.invert_us is not None and s.invert_ds is not None:
-                us_xs = next((x for x in xs_list if x.rs == s.us_rs), None)
-                ds_xs = next((x for x in xs_list if x.rs == s.ds_rs), None)
-                canonical_interval = us_xs.length_channel if us_xs is not None else None
-                raw_dn_len = (
-                    canonical_interval - s.culvert_length - s.culvert_us_distance
-                    if canonical_interval is not None else None
-                )
-                partition_valid = (
-                    us_xs is not None
-                    and ds_xs is not None
-                    and raw_dn_len is not None
-                    and raw_dn_len >= -0.01
-                    and math.isclose(
-                        s.culvert_us_distance + s.culvert_length + raw_dn_len,
-                        canonical_interval,
-                        rel_tol=1e-7,
-                        abs_tol=0.01,
-                    )
-                )
-                dn_len = max(0.0, raw_dn_len or 0.0)
-                partition_warning = "" if partition_valid else (
-                    "Culvert partition does not resolve to the connected US XS channel length."
-                )
-                anchor_cumdist = cumdist[i] if i < len(cumdist) else 0.0
-                up_face_cumdist = (
-                    anchor_cumdist - s.culvert_us_distance
-                    if partition_valid else anchor_cumdist
-                )
-                dn_face_cumdist = (
-                    up_face_cumdist - s.culvert_length
-                    if partition_valid else anchor_cumdist
-                )
-                geom_struct = geometry_text_structures.get(str(s.rs).strip()) if s.rs else None
-                profile_values = {n: (profs.get(n) if n in profs else None) for n in profile_names}
-                up_low = s.invert_us
-                dn_low = s.invert_ds
-                up_high = None
-                dn_high = None
-                if geom_struct is not None:
-                    if geom_struct.rise is not None:
-                        up_low = (s.invert_us or 0.0) + float(geom_struct.rise)
-                        dn_low = (s.invert_ds or 0.0) + float(geom_struct.rise)
-                    if geom_struct.barrel_us_station is not None and geom_struct.deck_up:
-                        up_high = _interpolate_station_elevation(geom_struct.deck_up, float(geom_struct.barrel_us_station))
-                    if geom_struct.barrel_ds_station is not None and geom_struct.deck_dn:
-                        dn_high = _interpolate_station_elevation(geom_struct.deck_dn, float(geom_struct.barrel_ds_station))
-                rows.append(WorkingRow(
-                    id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
-                    struc="CULVERT-UP",
-                    length_chnl=0.0,
-                    cumdist=up_face_cumdist,
-                    minchel=s.invert_us,
-                    low_chord=up_low,
-                    high_chord=up_high,
-                    profiles=profile_values,
-                    kind="struct", source_xs_index=i,
-                    weir_width=s.weir_width,
-                    connected_us_rs=s.us_rs,
-                    connected_ds_rs=s.ds_rs,
-                    culvert_us_gap=s.culvert_us_distance,
-                    culvert_barrel_length=s.culvert_length,
-                    culvert_ds_residual=dn_len,
-                    structure_partition_valid=partition_valid,
-                    structure_partition_warning=partition_warning,
-                ))
-                rid += 1
-                rows.append(WorkingRow(
-                    id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
-                    struc="CULVERT-DN",
-                    length_chnl=0.0,
-                    cumdist=dn_face_cumdist,
-                    minchel=s.invert_ds,
-                    low_chord=dn_low,
-                    high_chord=dn_high,
-                    profiles=profile_values,
-                    kind="struct", source_xs_index=i,
-                    weir_width=s.weir_width,
-                    connected_us_rs=s.us_rs,
-                    connected_ds_rs=s.ds_rs,
-                    culvert_us_gap=s.culvert_us_distance,
-                    culvert_barrel_length=s.culvert_length,
-                    culvert_ds_residual=dn_len,
-                    structure_partition_valid=partition_valid,
-                    structure_partition_warning=partition_warning,
-                ))
-                rid += 1
-                continue
+    sources = list(structs) + list(getattr(plan,"unassigned_structures",[]))
+    models = normalize(sources, xs_rows, profile_names, linked_text(plan))
+    rows = []
+    pending = list(models)
 
-            # Generic fallback for non-culvert structures.
-            if any(k in s_type for k in ("BRIDGE", "INLINE", "WEIR")) and "LATERAL" not in s_type:
-                faces = ("Dn", "Up")
-            else:
-                faces = ("",)
-            for face in faces:
-                label = f"{s_type}-{face}" if face else s_type
-                scum = cumdist[i] if i < len(cumdist) else 0.0
-                if face == "Up":
-                    scum = scum + max(1.0, (s.weir_width or 20.0) * 0.5)
-                elif face == "Dn":
-                    scum = scum - max(1.0, (s.weir_width or 20.0) * 0.5)
-                    scum = max(0.0, scum)
-                rows.append(WorkingRow(
-                    id=rid, river=s.river or xs.river, reach=s.reach or xs.reach, rs=s.rs,
-                    struc=label,
-                    length_chnl=0.0 if s_type == "LATERAL" else (s.weir_width or 0.0),
-                    cumdist=scum,
-                    minchel=s.minchel if s.minchel is not None else xs.minchel,
-                    low_chord=s.low_chord, high_chord=s.high_chord,
-                    profiles={n: None for n in profile_names},
-                    kind="struct", source_xs_index=i,
-                    weir_width=s.weir_width,
-                    connected_us_rs=s.us_rs,
-                    structure_profile_data=list(s.profile_data),
-                    hw_connectivity=list(s.hw_connectivity),
-                    tw_connectivity=list(s.tw_connectivity),
-                    lateral_hw_distance=s.lateral_hw_distance,
-                    lateral_tw_distance=s.lateral_tw_distance,
-                ))
-                rid += 1
+    def append_structure(model):
+        # Unsupported records are retained, not assigned nearest-XS geometry.
+        labels = ["CULVERT-UP","CULVERT-DN"] if model.type == "CULVERT" else [model.type]
+        upstream_index = next((i for i,x in enumerate(xs_rows) if (x.river,x.reach,x.rs) == model.upstream),None)
+        for label in labels:
+            source = model.source
+            rows.append(WorkingRow(
+                id=0, river=model.river, reach=model.reach, rs=model.rs,
+                struc=label, kind="struct", cumdist=None, length_chnl=0.0,
+                source_xs_index=upstream_index, profiles={name:None for name in profile_names},
+                weir_width=source.get("weir_width"), connected_us_rs=model.upstream[2] if model.upstream else "",
+                connected_ds_rs=model.downstream[2] if model.downstream else "",
+                structure_profile_data=source.get("profile_data",[]),
+                hw_connectivity=source.get("hw_connectivity",[]), tw_connectivity=source.get("tw_connectivity",[]),
+                lateral_hw_distance=source.get("lateral_hw_distance"), lateral_tw_distance=source.get("lateral_tw_distance"),
+                structure_model=model,
+                source_identity=model.identity,
+                row_identity=stable_id("working-structure", model_id, model.identity, label),
+            ))
+    for xs in xs_rows:
+        rows.append(xs)
+        for model in list(pending):
+            if model.upstream == (xs.river,xs.reach,xs.rs):
+                append_structure(model)
+                pending.remove(model)
+    for model in pending:
+        append_structure(model)
+    for i,row in enumerate(rows,1):
+        row.id=i
+    sync_rows(rows)
     return rows
 
 
@@ -516,11 +466,11 @@ def apply_node_names(rows: list[WorkingRow], plan: Any, reach_idx: int = 0) -> l
     if not plan.reaches:
         return rows
     xs_list = plan.reaches[reach_idx].cross_sections
-    name_by_rs = {xs.rs: (xs.name or "").strip() for xs in xs_list}
+    name_by_identity = {(xs.river, xs.reach, xs.rs): (xs.name or "").strip() for xs in xs_list}
     for r in rows:
         if r.kind != "xs":
             continue
-        name = name_by_rs.get(r.rs, "")
+        name = name_by_identity.get((r.river, r.reach, r.rs), "")
         if not name:
             continue
         if len(name) <= 3:
@@ -555,77 +505,31 @@ def recalc_cumdist(rows: list[WorkingRow], start: float = 0.0) -> list[WorkingRo
         return rows
 
     from .merge import compute_cumdist_from_lengths
+    from .hdf_reader import xs_identity, station_number, AlignmentError
+    keys = [xs_identity(row.river, row.reach, row.rs) for row in xs_rows]
+    stations = [station_number(row.rs) for row in xs_rows]
+    if len({key[:2] for key in keys}) != 1:
+        raise AlignmentError("Continuous multi-reach recalculation requires verified junction topology; unsupported.")
+    if len(set(keys)) != len(keys) or any(a <= b for a, b in zip(stations, stations[1:])):
+        raise AlignmentError("Working XS require unique, strictly upstream-first river stations.")
 
     cumdist = compute_cumdist_from_lengths(
-        [
-            row.canonical_length_chnl
-            if row.canonical_length_chnl is not None else row.length_chnl
-            for row in xs_rows
-        ],
+        [row.length_chnl for row in xs_rows],
         start=start,
     )
+    if any(not math.isfinite(value) for value in cumdist):
+        raise AlignmentError("Calculated CUMDIST is nonfinite; reduce the starting distance or invalid working lengths. No stationing was changed.")
+    by_rs = {row.rs: row for row in xs_rows}
+    for row in rows:
+        if row.kind == "struct" and row.structure_partition_valid is True:
+            us = by_rs.get(row.connected_us_rs)
+            if us is not None and row.culvert_us_gap is not None and row.culvert_barrel_length is not None:
+                if us.length_chnl - row.culvert_us_gap - row.culvert_barrel_length < -0.01:
+                    raise AlignmentError(f"XS {us.rs}: edited length cannot contain the validated culvert gap and barrel; CUMDIST was not changed.")
     for row, distance in zip(xs_rows, cumdist):
         row.cumdist = distance
 
-    # A lateral is temporarily displayed at its explicit connected US XS. It
-    # is not a main-channel interval and must not affect the XS chain.
-    xs_by_rs = {row.rs: row for row in xs_rows}
-    xs_by_index = {
-        row.source_xs_index: row
-        for row in xs_rows
-        if row.source_xs_index is not None
-    }
-    for row in rows:
-        if row.kind != "struct" or (row.struc or "").upper() != "LATERAL":
-            continue
-        anchor = xs_by_rs.get(row.connected_us_rs)
-        if anchor is None and row.source_xs_index is not None:
-            anchor = xs_by_index.get(row.source_xs_index)
-        if anchor is not None:
-            row.cumdist = anchor.cumdist
-
-    # A validated culvert partition locates faces within an already-accounted
-    # ordinary-XS interval; it never contributes another reach length.
-    culvert_pairs: dict[str, dict[str, WorkingRow]] = {}
-    for row in rows:
-        label = (row.struc or "").upper()
-        if label in {"CULVERT-UP", "CULVERT-DN"}:
-            culvert_pairs.setdefault(str(row.rs), {})[label] = row
-    for pair in culvert_pairs.values():
-        up = pair.get("CULVERT-UP")
-        dn = pair.get("CULVERT-DN")
-        template = up or dn
-        if template is None or template.structure_partition_valid is not True:
-            continue
-        us_xs = xs_by_rs.get(template.connected_us_rs)
-        ds_xs = xs_by_rs.get(template.connected_ds_rs)
-        if us_xs is None or ds_xs is None:
-            continue
-        gap = template.culvert_us_gap
-        barrel = template.culvert_barrel_length
-        residual = template.culvert_ds_residual
-        if gap is None or barrel is None or residual is None:
-            continue
-        up_face = us_xs.cumdist - gap
-        dn_face = up_face - barrel
-        partition_ok = math.isclose(
-            dn_face - ds_xs.cumdist,
-            residual,
-            rel_tol=1e-7,
-            abs_tol=0.01,
-        )
-        if not partition_ok:
-            for row in (up, dn):
-                if row is not None:
-                    row.structure_partition_valid = False
-                    row.structure_partition_warning = (
-                        "Recalculated culvert faces do not conserve the connected XS interval."
-                    )
-            continue
-        if up is not None:
-            up.cumdist = up_face
-        if dn is not None:
-            dn.cumdist = dn_face
+    sync_rows(rows)
 
     return rows
 
@@ -646,10 +550,14 @@ def fix_drawdowns(rows: list[WorkingRow], profile_names: list[str] | None = None
         for r in reversed(xs):
             v = r.profiles.get(name)
             if v is None:
+                carried = None
                 continue
             if carried is None:
                 carried = v
             elif v < carried:
+                source_value=next((v for v in r.hydraulic_values.values() if v.get("profile_key")==name),{})
+                source_value.update(working_provenance="USER_ENTERED",working_state="VALID")
+                r.adjustments.append({"profile_id":source_value.get("profile_id"),"profile_key":name,"original_value":v,"adjusted_value":carried,"reason":"USER_FIX_DRAWDOWNS","provenance":"USER_ENTERED"})
                 r.profiles[name] = carried
             else:
                 carried = v
@@ -668,19 +576,33 @@ def auto_panels(
     fit_to_page: bool = False,
     station_range: tuple[float, float] | None = None,
 ) -> list[PanelDef]:
-    """Build fixed-size FEMA panels using profile bounds for initial origins.
+    """Build FEMA panels from the validated continuous-distance profile.
 
-    Each panel is 13 horizontal boxes by 9 vertical boxes. Profile bounds choose
-    the first origin only; panel edges may extend beyond the model data.
+    A panel may use at most 13 horizontal inches and 9 vertical inches at its
+    stated scales.  Horizontal distance and local elevation variation both
+    participate in splitting; adjacent panels share their split coordinate so
+    the selected station interval remains continuous.
 
     single_panel: force one panel covering the full station range (may exceed
         paper length at the given H scale — used only when explicitly requested).
     fit_to_page: recompute h_scale so the full reach fits on one panel width,
         keeping V scale (and elev range) as given.
     """
+    from .state_contract import MAX_PANELS
+    from .export_geometry import validate_scales, page_dimensions
+    validate_scales(h_scale, v_scale)
+    page_dimensions(page_size, custom_page)
+    if usable_width_in is not None and (not math.isfinite(usable_width_in) or usable_width_in <= 0):
+        raise ValueError("Panel width must be finite and positive.")
+    if not math.isfinite(elev_pad) or elev_pad < 0:
+        raise ValueError("Elevation padding must be finite and nonnegative.")
     xs = [r for r in rows if r.kind == "xs"]
     if not xs:
         return []
+    if any(r.cumdist is None or not math.isfinite(r.cumdist) for r in xs):
+        raise ValueError("Panel station range must be finite.")
+    if station_range is not None and (any(not math.isfinite(v) for v in station_range) or station_range[0] >= station_range[1]):
+        raise ValueError("Panel station range must be finite and increasing.")
     cum = [r.cumdist for r in xs]
     x_min, x_max = float(min(cum)), float(max(cum))
     if station_range is not None:
@@ -689,15 +611,58 @@ def auto_panels(
         x_max = min(x_max, requested_max)
         if x_min >= x_max:
             return []
+    if not math.isfinite(x_max - x_min):
+        raise ValueError("Calculated panel station span must be finite.")
     reach_len = max(1.0, x_max - x_min)
-    inv = [r.minchel for r in xs if r.minchel is not None]
-    wsel_vals: list[float] = []
-    for r in xs:
-        for v in r.profiles.values():
-            if v is not None:
-                wsel_vals.append(v)
-    y_min = (min(inv) if inv else 0.0) - elev_pad
-    y_max = (max(wsel_vals) if wsel_vals else y_min + 10.0) + elev_pad
+    def profile_series() -> list[list[tuple[float, float | None]]]:
+        ordered = sorted(xs, key=lambda row: float(row.cumdist))
+        keys = sorted({key for row in ordered for key in row.profiles})
+        series = [[(float(row.cumdist), row.minchel) for row in ordered]]
+        series.extend([[(float(row.cumdist), row.profiles.get(key)) for row in ordered]
+                       for key in keys])
+        return series
+
+    series = profile_series()
+
+    def elevations_between(lo: float, hi: float) -> list[float]:
+        """Values and linearly clipped endpoints inside a continuous interval."""
+        values: list[float] = []
+        for points in series:
+            run: list[tuple[float, float]] = []
+            runs: list[list[tuple[float, float]]] = []
+            for station, value in points:
+                if value is None:
+                    if run:
+                        runs.append(run)
+                        run = []
+                    continue
+                value = float(value)
+                if not math.isfinite(value):
+                    raise ValueError("Panel elevations must be finite; resolve invalid ground or hydraulic values before Panel Setup.")
+                run.append((station, value))
+            if run:
+                runs.append(run)
+            for segment in runs:
+                values.extend(value for station, value in segment if lo <= station <= hi)
+                for boundary in (lo, hi):
+                    for (x0, y0), (x1, y1) in zip(segment, segment[1:]):
+                        if x0 < boundary < x1:
+                            ratio = (boundary - x0) / (x1 - x0)
+                            values.append(y0 + ratio * (y1 - y0))
+                            break
+        for row in rows:
+            if row.kind != "xs" and row.cumdist is not None and lo <= row.cumdist <= hi:
+                for value in (row.minchel, row.low_chord, row.high_chord):
+                    if value is not None:
+                        value = float(value)
+                        if not math.isfinite(value):
+                            raise ValueError("Panel elevations must be finite; resolve invalid structure geometry before Panel Setup.")
+                        values.append(value)
+        return values
+
+    all_elevations = elevations_between(x_min, x_max)
+    y_min = (min(all_elevations) if all_elevations else 0.0) - elev_pad
+    y_max = (max(all_elevations) if all_elevations else y_min + 10.0) + elev_pad
 
     hs = float(h_scale)
     vs = float(v_scale)
@@ -725,23 +690,62 @@ def auto_panels(
     span = panel_coverage(hs)
     vertical_span = vertical_panel_coverage(vs)
     panels: list[PanelDef] = []
-    s = x_min
-    n = 1
-    while s < x_max - 1e-6:
-        e = s + span
+    if not math.isfinite(span) or span <= 0 or not math.isfinite((x_max - x_min) / span):
+        raise ValueError("Panel generation step must be finite and positive; increase horizontal scale.")
+    count = max(1, math.ceil((x_max - x_min - 1e-6) / span))
+    if not math.isfinite(span) or span <= 0 or x_min + span <= x_min or count > MAX_PANELS:
+        raise ValueError(f"Panel generation exceeds {MAX_PANELS} panels or cannot advance; increase horizontal scale or narrow the range.")
+    station = x_min
+    tolerance = max(1e-8, (x_max - x_min) * 1e-10)
+    while station < x_max - tolerance:
+        candidate_end = min(x_max, station + span)
+
+        def vertical_bounds(end: float) -> tuple[float, float]:
+            values = elevations_between(station, end)
+            low = (min(values) if values else 0.0) - elev_pad
+            high = (max(values) if values else low + min(10.0, vertical_span)) + elev_pad
+            return low, high
+
+        low, high = vertical_bounds(candidate_end)
+        if high - low > vertical_span + 1e-8:
+            point_low, point_high = vertical_bounds(station)
+            if point_high - point_low > vertical_span + 1e-8:
+                raise ValueError(
+                    f"Profile elevation range at continuous distance {station:g} exceeds the "
+                    f"{vertical_span:g}-foot panel height. Increase vertical scale."
+                )
+            feasible = station
+            blocked = candidate_end
+            for _ in range(60):
+                middle = (feasible + blocked) / 2.0
+                middle_low, middle_high = vertical_bounds(middle)
+                if middle_high - middle_low <= vertical_span + 1e-8:
+                    feasible = middle
+                else:
+                    blocked = middle
+            candidate_end = feasible
+            if candidate_end <= station + tolerance:
+                raise ValueError(
+                    "Profile elevation changes too steeply for the selected vertical scale. "
+                    "Increase vertical scale or narrow Revision Limits."
+                )
+            low, high = vertical_bounds(candidate_end)
+
+        if len(panels) >= MAX_PANELS:
+            raise ValueError(f"Panel generation exceeds {MAX_PANELS} panels; increase horizontal or vertical scale or narrow the range.")
+        # Retain the established full-width final panel when no vertical split
+        # was needed; vertically split panels end at their engineering boundary.
+        stored_end = station + span if candidate_end >= x_max - tolerance and high - low <= vertical_span + 1e-8 else candidate_end
         panels.append(PanelDef(
-            panel=n, start_station=s, end_station=e,
-            start_elevation=y_min, end_elevation=y_min + vertical_span,
-            h_scale=hs, v_scale=vs,
+            panel=len(panels) + 1,
+            start_station=station,
+            end_station=stored_end,
+            start_elevation=low,
+            end_elevation=low + vertical_span,
+            h_scale=hs,
+            v_scale=vs,
         ))
-        n += 1
-        s = e
-    if not panels:
-        panels.append(PanelDef(
-            panel=1, start_station=x_min, end_station=x_min + span,
-            start_elevation=y_min, end_elevation=y_min + vertical_span,
-            h_scale=hs, v_scale=vs,
-        ))
+        station = candidate_end
     return panels
 
 
@@ -763,6 +767,12 @@ def build_db_from_plan(
 ) -> RasplotDatabase:
     """Construct a full RasplotDatabase from a loaded HEC-RAS plan."""
     db = RasplotDatabase(header=header or WorkHeader())
+    db.structure_inventory=deepcopy(getattr(plan,"structure_inventory",{"state":"VERIFIED_NONE"}))
+    db.source_units=getattr(plan,"source_units","INTERNAL_US_CUSTOMARY")
+    db.header.source_datum=getattr(plan,"source_datum","UNKNOWN")
+    if db.header.source_datum!="UNKNOWN" and db.header.datum_provenance!="USER_ENTERED":
+        db.header.vertical_datum=db.header.source_datum
+        db.header.datum_provenance="SOURCE"
     working = build_working_from_plan(plan, reach_idx=reach_idx, cumdist=cumdist)
     working = auto_letter(working, every=5)
     db.working = working
@@ -770,51 +780,42 @@ def build_db_from_plan(
 
     # Profile metadata — try to auto-map FEMA frequencies by name heuristics
     for p in plan.profiles:
-        freq, color, ltype, legend, layer, lw = _guess_frequency(p.name, db.frequencies)
+        freq, color, ltype, legend, layer, lw = _default_profile_style(p.name, db.frequencies)
         db.profiles.append(ProfileMeta(
-            name=p.name, frequency=freq, color=color, linetype=ltype,
-            lineweight=lw, legend_text=legend or p.name, layer=layer or f"PROF_{p.name}",
-            selected=(p.name == plan.profiles[0].name) if plan.profiles else False,
+            name=p.name, profile_id=p.profile_id, key=p.key, source_name=p.name, display_name=p.name, result_type=p.result_type, source_path=p.source_path, source_dataset=p.source_dataset, frequency=freq, color=color, linetype=ltype,
+            lineweight=lw, legend_text=p.name + (" (derived saved-timestep envelope)" if p.result_type=="DERIVED_MAXIMUM_ENVELOPE" else ""), layer=f"PROF_{p.profile_id}",
+            selected=(p.profile_id == plan.profiles[0].profile_id) if plan.profiles else False,
         ))
     if db.profiles:
         db.profiles[0].selected = True
 
-    db.panels = auto_panels(
-        working, h_scale=db.header.h_scale, v_scale=db.header.v_scale,
-        page_size=db.header.page_size,
-    )
+    try:
+        db.panels = auto_panels(
+            working, h_scale=db.header.h_scale, v_scale=db.header.v_scale,
+            page_size=db.header.page_size,
+        )
+    except ValueError as exc:
+        # A valid source may not fit the default presentation scale.  Loading
+        # remains available, but Panel Setup must obtain an explicit workable
+        # scale before a reviewed/exportable panel set exists.
+        message = str(exc)
+        if not (message.startswith("Profile elevation range at continuous distance")
+                or message.startswith("Profile elevation changes too steeply")):
+            raise
+        db.panels = []
     if plan.reaches:
         r = plan.reaches[reach_idx]
         db.header.stream_name = f"{r.river} {r.reach}".upper()
+    from .state_contract import seal_stationing, review_panels
+    db.stationing_start = min((r.cumdist for r in working if r.kind == "xs"), default=0.0)
+    seal_stationing(db)
+    review_panels(db)
     return db
 
 
-def _guess_frequency(name: str, freqs: list[dict]) -> tuple[str, str, str, str, str, float]:
-    n = (name or "").lower()
-    mapping = [
-        (("max", "maximum", "100", "1%", "1 pct", "base"), "1%"),
-        (("500", "0.2", "0.2%"), "0.2%"),
-        (("50 year", "50-year", "2%", "2 pct"), "2%"),
-        (("25", "4%"), "4%"),
-        (("10 year", "10-year", "10%"), "10%"),
-        (("5 year", "5-year", "20%"), "20%"),
-        (("2 year", "2-year", "50%"), "50%"),
-        (("plus", "1%+"), "1%+"),
-        (("future",), "1% Future"),
-    ]
-    hit = ""
-    for keys, freq in mapping:
-        if any(k in n for k in keys):
-            hit = freq
-            break
-    for f in freqs:
-        if f["frequency"] == hit:
-            return (
-                f["frequency"], f["color"], f["linetype"],
-                f["legend_text"], f["layer"], f.get("lineweight", 0.3),
-            )
-    # default blue continuous
-    return ("", "#196bd6", "CONTINUOUS", name, f"PROF_{name}", 0.30)
+def _default_profile_style(name: str, freqs: list[dict]) -> tuple[str, str, str, str, str, float]:
+    # Names convey no verified frequency semantics, including an exact "1%".
+    return ("", "#196bd6", "CONTINUOUS", name, "", 0.30)
 
 
 def distance_unit_factor(unit: str) -> float:

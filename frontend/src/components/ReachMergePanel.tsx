@@ -35,7 +35,7 @@ export default function ReachMergePanel({
 
   return (
     <div className="merge-panel">
-      <div className="merge-panel__title">Multi-reach order (downstream first)</div>
+      <div className="pane-section-heading"><div><strong>Reach assembly</strong><small>Downstream to upstream engineering order</small></div></div>
       <ol className="merge-list">
         {order.map((ri, i) => {
           const r = reaches[ri];
@@ -65,7 +65,7 @@ export default function ReachMergePanel({
           );
         })}
       </ol>
-      <button type="button" className="tool" onClick={onApply}>Apply merge</button>
+      <button type="button" className="button button--primary" onClick={onApply}>Apply reach order</button>
     </div>
   );
 }

@@ -18,6 +18,8 @@ env/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+.vite/
+frontend/.vite/
 
 # ==============================
 # Local settings
@@ -48,6 +50,7 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+*.stage-*/
 
 # ==============================
 # Test / coverage artifacts
@@ -62,6 +65,9 @@ coverage/
 *.db
 *.sqlite
 *.sqlite3
+
+# Reproducible local release/reviewer packages
+team-review-output/
 
 # Backup files
 *.bak

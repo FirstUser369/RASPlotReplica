@@ -1,16 +1,36 @@
+import { profileSegments } from "../engineering";
+import { StaleResponse } from "../api/context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type GetProfileResponse } from "../api/client";
+import { panelRelationships, resizePanelEdge, translatePanel, type PanelResizeEdge } from "../panelVisualization";
+import {
+  createPanelNumericInputs,
+  formatPanelDraftNumber,
+  materializePanelNumericInputs,
+  panelNumericInputKey,
+  parseFinitePanelInput,
+  synchronizePanelNumericInputs,
+  type PanelNumericField,
+  type PanelNumericInputs,
+} from "../panelDraft";
 
 type DraftPanel = {
   panel: number;
+  panel_suffix?: string;
+  display_id?: string;
   start_station: number;
   end_station: number;
   start_elevation: number;
   end_elevation: number;
-  panel_x?: number;
-  panel_y?: number;
+  panel_x?: number | null;
+  panel_y?: number | null;
   h_scale?: number;
   v_scale?: number;
+};
+
+const PAGE_DIMENSIONS: Record<string, [number, number]> = {
+  "11x17": [17, 11], ANSI_A: [11, 8.5], ANSI_B: [17, 11], ANSI_C: [22, 17],
+  ANSI_D: [34, 22], A3: [16.54, 11.69], A1: [33.11, 23.39], LETTER: [11, 8.5], TABLOID: [17, 11],
 };
 
 type Props = {
@@ -20,32 +40,56 @@ type Props = {
   revisionStart?: number | null;
   revisionEnd?: number | null;
   onClose: () => void;
+  onApplied?: (panels: DraftPanel[]) => void;
+  stationingDirty?: boolean;
 };
 
 export default function PanelSetupDialog({
-  open, sessionId, profile, revisionStart = null, revisionEnd = null, onClose,
+  open, sessionId, profile, revisionStart = null, revisionEnd = null, onClose, onApplied, stationingDirty = false,
 }: Props) {
   const [draftPanels, setDraftPanels] = useState<DraftPanel[]>([]);
+  const [numericInputs, setNumericInputs] = useState<PanelNumericInputs>({});
   const [hScale, setHScale] = useState(500);
   const [vScale, setVScale] = useState(5);
+  const [hScaleInput, setHScaleInput] = useState("500");
+  const [vScaleInput, setVScaleInput] = useState("5");
   const [pageSize, setPageSize] = useState("11x17");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [fitVersion, setFitVersion] = useState(0);
+  const [previewMode, setPreviewMode] = useState<"overview" | "selected">("overview");
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number | null>(null);
   const [dragState, setDragState] = useState<
-    | { kind: "station"; panelIndex: number; field: "start_station" | "end_station" }
+    | {
+        panelIndex: number;
+        kind: "move" | "resize";
+        edge?: PanelResizeEdge;
+        startSvgX: number;
+        startSvgY: number;
+        stationPerSvg: number;
+        elevationPerSvg: number;
+        original: DraftPanel;
+        viewDomain: { xMin: number; xMax: number; yMin: number; yMax: number };
+      }
     | null
   >(null);
+  const epoch = useRef(0);
+  useEffect(() => { epoch.current++; return () => { epoch.current++; }; }, [open, sessionId]);
+  const committed = useRef("");
+  const applying = useRef(false);
+  const engineeringVersion = useRef<string>();
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [cursorPos, setCursorPos] = useState<{ station: number | null; elevation: number | null }>({ station: null, elevation: null });
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => { if (event.key === "Escape" && !applying.current) onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
 
   function formatDisplayNumber(value: number | null | undefined) {
-    if (!Number.isFinite(Number(value))) return "";
-    const numeric = Number(value);
-    const rounded = Number(numeric.toFixed(2));
-    return String(rounded);
+    return formatPanelDraftNumber(value);
   }
 
   function buildPreviewBounds(panels: DraftPanel[]) {
@@ -81,7 +125,7 @@ export default function PanelSetupDialog({
   }
 
   useEffect(() => {
-    if (!open || !sessionId) return;
+    if (!open || !sessionId || stationingDirty) return;
     let ignore = false;
 
     async function loadPanels() {
@@ -90,24 +134,39 @@ export default function PanelSetupDialog({
         setError(null);
         const db = await api.getPanels(sessionId);
         const panels = (db.panels ?? []).map((p: any) => ({
-          panel: Number(p.panel ?? 1),
-          start_station: Number(p.start_station ?? 0),
-          end_station: Number(p.end_station ?? 0),
-          start_elevation: Number(p.start_elevation ?? 0),
-          end_elevation: Number(p.end_elevation ?? 0),
-          panel_x: Number(p.panel_x ?? 0),
-          panel_y: Number(p.panel_y ?? 0),
-          h_scale: Number(p.h_scale ?? 500),
-          v_scale: Number(p.v_scale ?? 5),
+          panel: Number(p.panel ?? NaN),
+          panel_suffix: String(p.panel_suffix ?? ""),
+          display_id: String(p.display_id ?? p.panel ?? ""),
+          start_station: Number(p.start_station ?? NaN),
+          end_station: Number(p.end_station ?? NaN),
+          start_elevation: Number(p.start_elevation ?? NaN),
+          end_elevation: Number(p.end_elevation ?? NaN),
+          panel_x: p.panel_x ?? null,
+          panel_y: p.panel_y ?? null,
+          h_scale: Number(p.h_scale ?? NaN),
+          v_scale: Number(p.v_scale ?? NaN),
         }));
         if (ignore) return;
         setDraftPanels(panels);
-        const header = (await api.getDb(sessionId))?.header ?? {};
-        setHScale(Number(header.h_scale ?? panels[0]?.h_scale ?? 500));
-        setVScale(Number(header.v_scale ?? panels[0]?.v_scale ?? 5));
+        setNumericInputs(createPanelNumericInputs(panels));
+        setPreviewMode("overview");
+        setSelectedPanelIndex(panels.length ? 0 : null);
+        committed.current = JSON.stringify(panels);
+        const fullDb = await api.getDb(sessionId);
+        if (ignore) return;
+        const header = fullDb?.header ?? {};
+        engineeringVersion.current = fullDb.engineering_version;
+        if (fullDb.stationing_dirty) throw new Error("CUMDIST is DIRTY. Recalculate before Panel Setup.");
+        const loadedHScale = Number(header.h_scale ?? panels[0]?.h_scale ?? 500);
+        const loadedVScale = Number(header.v_scale ?? panels[0]?.v_scale ?? 5);
+        setHScale(loadedHScale);
+        setVScale(loadedVScale);
+        setHScaleInput(formatPanelDraftNumber(loadedHScale));
+        setVScaleInput(formatPanelDraftNumber(loadedVScale));
         setPageSize(String(header.page_size ?? "11x17"));
-        setStatus(`${panels.length} panel${panels.length === 1 ? "" : "s"} loaded`);
+        setStatus(fullDb.panels_stale ? "Saved panels need review after engineering changes. Review and Apply; Cancel leaves them unchanged." : `${panels.length} panels loaded`);
       } catch (e: any) {
+      if (e instanceof StaleResponse) return;
         if (!ignore) {
           setError(String(e.message ?? e));
           setStatus("Unable to load panel definitions");
@@ -121,7 +180,7 @@ export default function PanelSetupDialog({
     return () => {
       ignore = true;
     };
-  }, [open, sessionId]);
+  }, [open, sessionId, stationingDirty]);
 
   const preview = useMemo(() => {
     if (!profile || !draftPanels.length) return null;
@@ -135,6 +194,11 @@ export default function PanelSetupDialog({
     const cumdists = xs.map((r) => Number(r.cumdist ?? NaN)).filter((v) => Number.isFinite(v));
     const availableMinStation = cumdists.length ? Math.min(...cumdists) : bounds.xMinRaw ?? bounds.xMin;
     const availableMaxStation = cumdists.length ? Math.max(...cumdists) : bounds.xMaxRaw ?? bounds.xMax;
+    const primaryRuns = profile.profile_segments?.[profile.profile] ?? profileSegments(xs.map(row => [row.cumdist, row.wsel]));
+    const invertRuns = profileSegments(xs.map(row => [row.cumdist, row.minchel]));
+    const profileElevations = [...primaryRuns, ...invertRuns]
+      .flatMap((run) => run.map((point) => Number(point[1])))
+      .filter((value) => Number.isFinite(value));
 
     // plot margins in viewBox units (0..100) - keep small to maximize usable area
     const plot: { left: number; right: number; top: number; bottom: number; width: number; height: number } = {
@@ -146,11 +210,33 @@ export default function PanelSetupDialog({
       height: 100 - 5 - 8,
     };
 
-    // view domain: show full available profile extent (not just panel extents)
-    const viewXMin = availableMinStation;
-    const viewXMax = availableMaxStation;
-    const viewYMin = bounds.yMin;
-    const viewYMax = bounds.yMax;
+    const selectedPanel = selectedPanelIndex == null ? null : draftPanels[selectedPanelIndex] ?? null;
+    const selectedXPad = selectedPanel ? Math.max(1, (selectedPanel.end_station - selectedPanel.start_station) * 0.05) : 0;
+    const selectedYPad = selectedPanel ? Math.max(0.5, (selectedPanel.end_elevation - selectedPanel.start_elevation) * 0.08) : 0;
+    const overviewXMinRaw = Math.min(availableMinStation, bounds.xMinRaw ?? availableMinStation);
+    const overviewXMaxRaw = Math.max(availableMaxStation, bounds.xMaxRaw ?? availableMaxStation);
+    const overviewXPad = Math.max(1, (overviewXMaxRaw - overviewXMinRaw) * 0.03);
+    const overviewYMinRaw = Math.min(bounds.yMin, ...(profileElevations.length ? profileElevations : [bounds.yMin]));
+    const overviewYMaxRaw = Math.max(bounds.yMax, ...(profileElevations.length ? profileElevations : [bounds.yMax]));
+    const overviewYPad = Math.max(0.5, (overviewYMaxRaw - overviewYMinRaw) * 0.08);
+    const fittedDomain = previewMode === "selected" && selectedPanel ? {
+      xMin: selectedPanel.start_station - selectedXPad,
+      xMax: selectedPanel.end_station + selectedXPad,
+      yMin: selectedPanel.start_elevation - selectedYPad,
+      yMax: selectedPanel.end_elevation + selectedYPad,
+    } : {
+      xMin: overviewXMinRaw - overviewXPad,
+      xMax: overviewXMaxRaw + overviewXPad,
+      yMin: overviewYMinRaw - overviewYPad,
+      yMax: overviewYMaxRaw + overviewYPad,
+    };
+    // Lock the displayed domain during a gesture so pointer deltas continue to
+    // map to the same engineering coordinates. Refit only after pointer-up.
+    const viewDomain = dragState?.viewDomain ?? fittedDomain;
+    const viewXMin = viewDomain.xMin;
+    const viewXMax = viewDomain.xMax;
+    const viewYMin = viewDomain.yMin;
+    const viewYMax = viewDomain.yMax;
 
     const stationToX = (station: number) => {
       const ratio = (Number(station) - viewXMin) / Math.max(1e-9, viewXMax - viewXMin);
@@ -172,24 +258,10 @@ export default function PanelSetupDialog({
       return viewYMin + ratio * (viewYMax - viewYMin);
     };
 
-    const primaryPoints = xs.map((row) => {
-      const x = Number(row.cumdist ?? NaN);
-      const yValue = Number(
-        row.wsel ??
-        (row.wsel_by_profile && Object.values(row.wsel_by_profile).find((v): v is number => typeof v === "number" && Number.isFinite(v))) ??
-        row.minchel ??
-        NaN,
-      );
-      if (!Number.isFinite(x) || !Number.isFinite(yValue)) return null;
-      return `${stationToX(x)},${elevationToY(yValue)}`;
-    }).filter((p): p is string => p !== null);
-
-    const invertPoints = xs.map((row) => {
-      const x = Number(row.cumdist ?? NaN);
-      const y = Number(row.minchel ?? NaN);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-      return `${stationToX(x)},${elevationToY(y)}`;
-    }).filter((p): p is string => p !== null);
+    const primaryPoints = primaryRuns
+      .map(run => run.map(([x,y]) => `${stationToX(x)},${elevationToY(y)}`).join(" "));
+    const invertPoints = invertRuns
+      .map(run => run.map(([x,y]) => `${stationToX(x)},${elevationToY(y)}`).join(" "));
 
     const xTicks = Array.from({ length: 5 }, (_, index) => {
       const ratio = index / 4;
@@ -223,6 +295,14 @@ export default function PanelSetupDialog({
         value: Number(panel.end_station),
       },
     ]);
+    const drawingClip = selectedPanel && previewMode === "selected" ? {
+      x: stationToX(selectedPanel.start_station),
+      y: elevationToY(selectedPanel.end_elevation),
+      width: stationToX(selectedPanel.end_station) - stationToX(selectedPanel.start_station),
+      height: elevationToY(selectedPanel.start_elevation) - elevationToY(selectedPanel.end_elevation),
+    } : { x: plot.left, y: plot.top, width: plot.width, height: plot.height };
+    const outOfModelPanels = draftPanels.filter((panel) =>
+      panel.start_station < availableMinStation || panel.end_station > availableMaxStation);
 
     return {
       bounds,
@@ -239,48 +319,120 @@ export default function PanelSetupDialog({
       elevationToY,
       yToElevation,
       panelBoundaries,
+      viewDomain,
+      drawingClip,
+      outOfModelPanels,
     };
-  }, [draftPanels, fitVersion, profile]);
+  }, [draftPanels, dragState, fitVersion, previewMode, profile, selectedPanelIndex]);
+  const stitching = useMemo(() => panelRelationships(draftPanels), [draftPanels]);
 
-  function updatePanel(index: number, field: keyof DraftPanel, rawValue: string) {
-    if (rawValue.trim() === "") return;
-    const numeric = Number(rawValue);
-    if (!Number.isFinite(numeric)) return;
-
-    setDraftPanels((prev) => {
-      const next = prev.map((panel) => ({ ...panel }));
-      const target = Number(numeric);
-      const minWidth = 10;
-
-      if (field === "panel") {
-        next[index].panel = Number(rawValue) || 1;
-        return next;
-      }
-
-      if (field === "start_station") {
-        next[index].start_station = target;
-        return next;
-      }
-
-      if (field === "end_station") {
-        next[index].end_station = target;
-        const minAllowed = next[index].start_station + minWidth;
-        if (next[index].end_station < minAllowed) {
-          next[index].end_station = minAllowed;
-        }
-        return next;
-      }
-
-      next[index][field] = target as never;
-      return next;
-    });
-    setError(null);
+  function materializeForInteraction() {
+    const materialized = committedNumericDraft();
+    if (!materialized.ok) {
+      setError(`${materialized.error} Correct the value before moving or resizing the panel.`);
+      return null;
+    }
+    return materialized.panels;
   }
 
-  function validatePanels() {
-    if (!draftPanels.length) return "No panel definitions are available.";
+  function resizeLimits(panel: DraftPanel) {
+    const page = PAGE_DIMENSIONS[pageSize];
+    const panelHScale = Number(panel.h_scale ?? hScale);
+    const panelVScale = Number(panel.v_scale ?? vScale);
+    if (!page) throw new Error(`Page size ${pageSize} is unsupported for interactive resizing.`);
+    if (![panelHScale, panelVScale].every((value) => Number.isFinite(value) && value > 0)) {
+      throw new Error("Saved panel scales must be finite and positive before resizing.");
+    }
+    return {
+      maxStationSpan: (page[0] - 4) * panelHScale,
+      maxElevationSpan: (page[1] - 2) * panelVScale,
+    };
+  }
 
-    for (const panel of draftPanels) {
+  function movePanel(index: number, stationDelta: number, elevationDelta: number) {
+    const materialized = materializeForInteraction();
+    if (!materialized) return;
+    try {
+      const next = materialized.map((panel, panelIndex) =>
+          panelIndex === index ? translatePanel(panel, stationDelta, elevationDelta) : panel);
+      setDraftPanels(next);
+      setNumericInputs((current) => synchronizePanelNumericInputs(current, next, [index]));
+      setError(null);
+    } catch (reason: any) {
+      setError(String(reason.message ?? reason));
+    }
+  }
+
+  function updatePanel(index: number, field: keyof DraftPanel, rawValue: string) {
+    if (field === "panel_suffix") {
+      setDraftPanels((previous) => previous.map((panel, panelIndex) =>
+        panelIndex === index ? { ...panel, panel_suffix: rawValue } : panel));
+      setError(null);
+    }
+  }
+
+  function updateNumericInput(index: number, field: PanelNumericField, rawValue: string) {
+    setNumericInputs((current) => ({
+      ...current,
+      [panelNumericInputKey(index, field)]: rawValue,
+    }));
+  }
+
+  function commitNumericInput(index: number, field: PanelNumericField) {
+    const materialized = materializePanelNumericInputs(draftPanels, numericInputs);
+    if (!materialized.ok) {
+      setError(materialized.error);
+      return false;
+    }
+    // Commit all currently valid raw bounds together. This lets the user fix
+    // either side of a temporarily invalid pair without previewing the invalid
+    // geometry in between.
+    setDraftPanels(materialized.panels);
+    setError(null);
+    return true;
+  }
+
+  function committedNumericDraft() {
+    const materialized = materializePanelNumericInputs(draftPanels, numericInputs);
+    if (!materialized.ok) return materialized;
+    const parsedHScale = parseFinitePanelInput(hScaleInput, "Horizontal Scale");
+    if (!parsedHScale.ok || parsedHScale.value <= 0) {
+      return { ok: false as const, error: parsedHScale.ok ? "Horizontal Scale must be greater than 0." : parsedHScale.error };
+    }
+    const parsedVScale = parseFinitePanelInput(vScaleInput, "Vertical Scale");
+    if (!parsedVScale.ok || parsedVScale.value <= 0) {
+      return { ok: false as const, error: parsedVScale.ok ? "Vertical Scale must be greater than 0." : parsedVScale.error };
+    }
+    return { ok: true as const, panels: materialized.panels, hScale: parsedHScale.value, vScale: parsedVScale.value };
+  }
+
+  function commitScaleInput(axis: "horizontal" | "vertical") {
+    const raw = axis === "horizontal" ? hScaleInput : vScaleInput;
+    const label = axis === "horizontal" ? "Horizontal Scale" : "Vertical Scale";
+    const parsed = parseFinitePanelInput(raw, label);
+    if (!parsed.ok || parsed.value <= 0) {
+      setError(parsed.ok ? `${label} must be greater than 0.` : parsed.error);
+      return false;
+    }
+    if (axis === "horizontal") {
+      setHScale(parsed.value);
+      setHScaleInput(formatPanelDraftNumber(parsed.value));
+    } else {
+      setVScale(parsed.value);
+      setVScaleInput(formatPanelDraftNumber(parsed.value));
+    }
+    setError(null);
+    return true;
+  }
+
+  function validatePanels(panels = draftPanels, horizontalScale = hScale, verticalScale = vScale) {
+    if (!panels.length) return "No panel definitions are available.";
+
+    for (const panel of panels) {
+      const suffix = (panel.panel_suffix ?? "").trim();
+      if (suffix.length > 3 || (suffix.length > 0 && !/^[A-Za-z]+$/.test(suffix))) {
+        return `Suffix for Panel ${panel.display_id ?? panel.panel} must contain up to three letters A-Z.`;
+      }
       if (!Number.isFinite(panel.panel) || panel.panel < 1) {
         return `Panel number must be valid for panel ${panel.panel ?? "?"}.`;
       }
@@ -294,37 +446,38 @@ export default function PanelSetupDialog({
       if (panel.end_elevation <= panel.start_elevation) {
         return `Panel ${panel.panel}: Ending Elevation must be greater than Starting Elevation.`;
       }
+      try {
+        const limits = resizeLimits(panel);
+        if (panel.end_station - panel.start_station > limits.maxStationSpan + 1e-9) {
+          return `Panel ${panel.panel}: station span exceeds the physical page capacity at its saved horizontal scale.`;
+        }
+        if (panel.end_elevation - panel.start_elevation > limits.maxElevationSpan + 1e-9) {
+          return `Panel ${panel.panel}: elevation span exceeds the physical page capacity at its saved vertical scale.`;
+        }
+      } catch (reason: any) {
+        return String(reason.message ?? reason);
+      }
       if (revisionStart != null && revisionEnd != null
           && (panel.end_station <= revisionStart || panel.start_station >= revisionEnd)) {
         return `Panel ${panel.panel} does not overlap the active revision range.`;
       }
     }
 
-    if (!Number.isFinite(Number(hScale)) || Number(hScale) <= 0) return "Horizontal Scale must be greater than 0.";
-    if (!Number.isFinite(Number(vScale)) || Number(vScale) <= 0) return "Vertical Scale must be greater than 0.";
+    if (!Number.isFinite(Number(horizontalScale)) || Number(horizontalScale) <= 0) return "Horizontal Scale must be greater than 0.";
+    if (!Number.isFinite(Number(verticalScale)) || Number(verticalScale) <= 0) return "Vertical Scale must be greater than 0.";
 
     return null;
   }
 
-  async function reloadPanelsFromBackend() {
-    const db = await api.getPanels(sessionId);
-    const panels = (db.panels ?? []).map((p: any) => ({
-      panel: Number(p.panel ?? 1),
-      start_station: Number(p.start_station ?? 0),
-      end_station: Number(p.end_station ?? 0),
-      start_elevation: Number(p.start_elevation ?? 0),
-      end_elevation: Number(p.end_elevation ?? 0),
-      panel_x: Number(p.panel_x ?? 0),
-      panel_y: Number(p.panel_y ?? 0),
-      h_scale: Number(p.h_scale ?? 500),
-      v_scale: Number(p.v_scale ?? 5),
-    }));
-    setDraftPanels(panels);
-    setStatus(`${panels.length} panel${panels.length === 1 ? "" : "s"} refreshed`);
-  }
-
   async function handleApply() {
-    const msg = validatePanels();
+    if (applying.current || isLoading) return;
+    const token = epoch.current;
+    const materialized = committedNumericDraft();
+    if (!materialized.ok) {
+      setError(materialized.error);
+      return;
+    }
+    const msg = validatePanels(materialized.panels, materialized.hScale, materialized.vScale);
     if (msg) {
       setError(msg);
       return;
@@ -332,46 +485,77 @@ export default function PanelSetupDialog({
 
     setError(null);
     setIsLoading(true);
+    applying.current = true;
     try {
       const payload = {
-        panels: draftPanels.map((p) => ({
+        expected_engineering_version: engineeringVersion.current,
+        panels: materialized.panels.map((p) => ({
           panel: Number(p.panel),
+          panel_suffix: p.panel_suffix ?? "",
           start_station: Number(p.start_station),
           end_station: Number(p.end_station),
           start_elevation: Number(p.start_elevation),
           end_elevation: Number(p.end_elevation),
-          panel_x: Number(p.panel_x ?? 0),
-          panel_y: Number(p.panel_y ?? 0),
-          h_scale: Number(hScale),
-          v_scale: Number(vScale),
+          panel_x: p.panel_x ?? null,
+          panel_y: p.panel_y ?? null,
+          h_scale: Number(p.h_scale ?? materialized.hScale),
+          v_scale: Number(p.v_scale ?? materialized.vScale),
         })),
         auto: false,
-        h_scale: Number(hScale),
-        v_scale: Number(vScale),
+        h_scale: materialized.hScale,
+        v_scale: materialized.vScale,
         page_size: pageSize,
       };
-      await api.putPanels(sessionId, payload);
+      const result = await api.putPanels(sessionId, payload);
+      if (token !== epoch.current) return;
+      setDraftPanels(result.panels);
+      setNumericInputs(createPanelNumericInputs(result.panels));
+      setHScale(materialized.hScale);
+      setVScale(materialized.vScale);
+      setHScaleInput(formatPanelDraftNumber(materialized.hScale));
+      setVScaleInput(formatPanelDraftNumber(materialized.vScale));
+      committed.current = JSON.stringify(result.panels);
       setStatus("Panel configuration applied");
-      await reloadPanelsFromBackend();
+      onApplied?.(result.panels);
       onClose();
     } catch (e: any) {
+      if (e instanceof StaleResponse || token !== epoch.current) return;
       setError(String(e.message ?? e));
     } finally {
-      setIsLoading(false);
+      applying.current = false;
+      if (token === epoch.current) setIsLoading(false);
     }
   }
 
   function handleRefreshFit() {
+    const materialized = committedNumericDraft();
+    if (!materialized.ok) {
+      setError(materialized.error);
+      return;
+    }
+    setDraftPanels(materialized.panels);
+    setNumericInputs(createPanelNumericInputs(materialized.panels));
+    setHScale(materialized.hScale);
+    setVScale(materialized.vScale);
+    setHScaleInput(formatPanelDraftNumber(materialized.hScale));
+    setVScaleInput(formatPanelDraftNumber(materialized.vScale));
     setFitVersion((current) => current + 1);
     setStatus("Preview fit refreshed");
     setError(null);
+    setPreviewMode(selectedPanelIndex == null ? "overview" : "selected");
   }
 
   async function handleAutoGenerate() {
-    const hasDraftEdits = draftPanels.some((panel) => {
-      const fields = ["start_station", "end_station", "start_elevation", "end_elevation"] as const;
-      return fields.some((field) => Number(panel[field]) !== Number(panel[field]));
-    });
+    const token = epoch.current;
+    const materialized = committedNumericDraft();
+    if (!materialized.ok) {
+      setError(materialized.error);
+      return;
+    }
+    const hasDraftEdits = JSON.stringify(draftPanels) !== committed.current
+      || JSON.stringify(numericInputs) !== JSON.stringify(createPanelNumericInputs(draftPanels))
+      || hScaleInput !== formatPanelDraftNumber(hScale)
+      || vScaleInput !== formatPanelDraftNumber(vScale);
 
     if (hasDraftEdits && !window.confirm("Auto Generate will replace the current panel boundaries. Continue?")) {
       return;
@@ -381,50 +565,86 @@ export default function PanelSetupDialog({
     setIsLoading(true);
     try {
       const payload = {
-        panels: draftPanels.map((p) => ({
-          panel: Number(p.panel ?? 1),
-          start_station: Number(p.start_station ?? 0),
-          end_station: Number(p.end_station ?? 0),
-          start_elevation: Number(p.start_elevation ?? 0),
-          end_elevation: Number(p.end_elevation ?? 0),
-          panel_x: Number(p.panel_x ?? 0),
-          panel_y: Number(p.panel_y ?? 0),
-          h_scale: Number(hScale),
-          v_scale: Number(vScale),
+        expected_engineering_version: engineeringVersion.current,
+        panels: materialized.panels.map((p) => ({
+          panel: Number(p.panel ?? NaN),
+          panel_suffix: p.panel_suffix ?? "",
+          start_station: Number(p.start_station ?? NaN),
+          end_station: Number(p.end_station ?? NaN),
+          start_elevation: Number(p.start_elevation ?? NaN),
+          end_elevation: Number(p.end_elevation ?? NaN),
+          panel_x: p.panel_x ?? null,
+          panel_y: p.panel_y ?? null,
+          h_scale: Number(p.h_scale ?? materialized.hScale),
+          v_scale: Number(p.v_scale ?? materialized.vScale),
         })),
         auto: true,
-        h_scale: Number(hScale),
-        v_scale: Number(vScale),
+        draft: true,
+        h_scale: materialized.hScale,
+        v_scale: materialized.vScale,
         page_size: pageSize,
       };
       const res = await api.putPanels(sessionId, payload);
+      if (token !== epoch.current) return;
       const panels = (res.panels ?? []).map((p: any) => ({
-        panel: Number(p.panel ?? 1),
-        start_station: Number(p.start_station ?? 0),
-        end_station: Number(p.end_station ?? 0),
-        start_elevation: Number(p.start_elevation ?? 0),
-        end_elevation: Number(p.end_elevation ?? 0),
-        panel_x: Number(p.panel_x ?? 0),
-        panel_y: Number(p.panel_y ?? 0),
+        panel: Number(p.panel ?? NaN),
+        panel_suffix: String(p.panel_suffix ?? ""),
+        display_id: String(p.display_id ?? p.panel ?? ""),
+        start_station: Number(p.start_station ?? NaN),
+        end_station: Number(p.end_station ?? NaN),
+        start_elevation: Number(p.start_elevation ?? NaN),
+        end_elevation: Number(p.end_elevation ?? NaN),
+        panel_x: p.panel_x ?? null,
+        panel_y: p.panel_y ?? null,
         h_scale: Number(p.h_scale ?? hScale),
         v_scale: Number(p.v_scale ?? vScale),
       }));
       setDraftPanels(panels);
+      setNumericInputs(createPanelNumericInputs(panels));
+      setHScale(materialized.hScale);
+      setVScale(materialized.vScale);
+      setHScaleInput(formatPanelDraftNumber(materialized.hScale));
+      setVScaleInput(formatPanelDraftNumber(materialized.vScale));
+      setSelectedPanelIndex(panels.length ? 0 : null);
+      setPreviewMode("overview");
       setStatus(`${panels.length} auto-generated panel${panels.length === 1 ? "" : "s"}`);
     } catch (e: any) {
+      if (e instanceof StaleResponse || token !== epoch.current) return;
       console.error("Auto Generate failed:", e);
-      setError("Unable to auto-generate panels. Please check the panel settings.");
+      setError(String(e.message ?? "Unable to auto-generate panels. Check the panel settings."));
     } finally {
-      setIsLoading(false);
+      if (token === epoch.current) setIsLoading(false);
     }
   }
 
-  // Pointer drag helpers using pointer capture and SVG coordinate transforms
-  function handleBoundaryPointerDown(e: any, panelIndex: number, field: "start_station" | "end_station") {
+  // Translate a whole panel in engineering coordinates; saved dimensions and
+  // scales remain unchanged until authoritative backend validation on Apply.
+  function handlePanelPointerDown(e: any, panelIndex: number, edge?: PanelResizeEdge) {
+    if (!preview || !svgRef.current) return;
+    const materialized = materializeForInteraction();
+    if (!materialized) return;
     try {
       (e.currentTarget as Element).setPointerCapture((e.nativeEvent as PointerEvent).pointerId);
     } catch {}
-    setDragState({ kind: "station", panelIndex, field });
+    const point = svgRef.current.createSVGPoint();
+    point.x = (e.nativeEvent as PointerEvent).clientX;
+    point.y = (e.nativeEvent as PointerEvent).clientY;
+    const ctm = svgRef.current.getScreenCTM();
+    if (!ctm) return;
+    const svgPoint = point.matrixTransform(ctm.inverse());
+    setDraftPanels(materialized);
+    setSelectedPanelIndex(panelIndex);
+    setDragState({
+      panelIndex,
+      kind: edge ? "resize" : "move",
+      edge,
+      startSvgX: svgPoint.x,
+      startSvgY: svgPoint.y,
+      stationPerSvg: (preview.viewDomain.xMax - preview.viewDomain.xMin) / preview.plot.width,
+      elevationPerSvg: (preview.viewDomain.yMax - preview.viewDomain.yMin) / preview.plot.height,
+      original: { ...materialized[panelIndex] },
+      viewDomain: { ...preview.viewDomain },
+    });
   }
 
   function handleSvgPointerMove(e: any) {
@@ -443,18 +663,30 @@ export default function PanelSetupDialog({
 
     if (!dragState) return;
 
-    const panel = draftPanels[dragState.panelIndex];
-    if (!panel) return;
-    const minWidth = 10;
-    const allowed = dragState.field === "start_station"
-      ? Math.min(stationRaw, panel.end_station - minWidth)
-      : Math.max(stationRaw, panel.start_station + minWidth);
-
-    setDraftPanels((prev) => {
-      const next = prev.map((p) => ({ ...p }));
-      next[dragState.panelIndex][dragState.field] = allowed;
+    const stationDelta = (svgP.x - dragState.startSvgX) * dragState.stationPerSvg;
+    const elevationDelta = -(svgP.y - dragState.startSvgY) * dragState.elevationPerSvg;
+    let moved: DraftPanel;
+    try {
+      if (dragState.kind === "move") {
+        moved = translatePanel(dragState.original, stationDelta, elevationDelta);
+      } else {
+        const edge = dragState.edge!;
+        const coordinate = edge === "left" ? dragState.original.start_station + stationDelta
+          : edge === "right" ? dragState.original.end_station + stationDelta
+          : edge === "top" ? dragState.original.end_elevation + elevationDelta
+          : dragState.original.start_elevation + elevationDelta;
+        moved = resizePanelEdge(dragState.original, edge, coordinate, resizeLimits(dragState.original));
+      }
+    } catch (reason: any) {
+      setError(String(reason.message ?? reason));
+      return;
+    }
+    setDraftPanels((previous) => {
+      const next = previous.map((panel, index) => index === dragState.panelIndex ? moved : panel);
+      setNumericInputs((current) => synchronizePanelNumericInputs(current, next, [dragState.panelIndex]));
       return next;
     });
+    setError(null);
   }
 
   function handleSvgPointerUp(e: any) {
@@ -462,50 +694,74 @@ export default function PanelSetupDialog({
       (e.currentTarget as Element).releasePointerCapture((e.nativeEvent as PointerEvent).pointerId);
     } catch {}
     setDragState(null);
+    if (selectedPanelIndex != null) setPreviewMode("selected");
   }
 
   
 
   if (!open) return null;
+  if (stationingDirty) return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="panel-setup-modal panel-setup-modal--blocked" role="dialog" aria-modal="true" aria-labelledby="panel-setup-blocked-title" onClick={(event) => event.stopPropagation()}>
+        <div className="panel-setup-header"><div><h3 id="panel-setup-blocked-title">Panel Setup</h3><p>Saved panels are preserved.</p></div><button type="button" className="close-button" onClick={onClose} aria-label="Close Panel Setup">×</button></div>
+        <div className="panel-dirty-message"><strong>Recalculate CUMDIST to continue</strong><p>Panel geometry cannot be edited or applied while stationing is dirty. Recalculate CUMDIST, then reopen Panel Setup and review the saved panels.</p></div>
+        <div className="panel-setup-footer"><button type="button" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="panel-setup-backdrop" onClick={onClose}>
-      <div className="panel-setup-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="panel-setup-backdrop" onClick={() => { if (!applying.current) onClose(); }}>
+      <div className="panel-setup-modal" role="dialog" aria-modal="true" aria-labelledby="panel-setup-title" onClick={(e) => e.stopPropagation()}>
         <div className="panel-setup-header">
           <div>
-            <h3>PANEL SETUP</h3>
+            <span className="eyebrow">Panels and drawing extent</span><h3 id="panel-setup-title">Panel Setup</h3>
             {revisionStart != null && revisionEnd != null && (
               <div className="hint">
                 Active revision: {formatDisplayNumber(revisionStart)} - {formatDisplayNumber(revisionEnd)} ft
               </div>
             )}
           </div>
-          <button type="button" className="panel-setup-close" onClick={onClose} aria-label="Close panel setup">×</button>
+          <button type="button" className="panel-setup-close" disabled={isLoading} onClick={onClose} aria-label="Close panel setup">×</button>
         </div>
 
         <div className="panel-setup-controls">
           <label>
-            <span>Horizontal Scale</span>
+            <span>Auto Generate horizontal scale</span>
             <div className="panel-setup-scale-input">
               <span>1&quot; =</span>
-              <input type="number" value={hScale} min="0.01" step="0.1" onChange={(e) => setHScale(Number(e.target.value))} />
+              <input type="text" inputMode="decimal" value={hScaleInput} onChange={(e) => setHScaleInput(e.target.value)} onBlur={() => commitScaleInput("horizontal")} />
               <span>ft</span>
             </div>
           </label>
 
           <label>
-            <span>Vertical Scale</span>
+            <span>Auto Generate vertical scale</span>
             <div className="panel-setup-scale-input">
               <span>1&quot; =</span>
-              <input type="number" value={vScale} min="0.01" step="0.1" onChange={(e) => setVScale(Number(e.target.value))} />
+              <input type="text" inputMode="decimal" value={vScaleInput} onChange={(e) => setVScaleInput(e.target.value)} onBlur={() => commitScaleInput("vertical")} />
               <span>ft</span>
             </div>
           </label>
 
           <div className="panel-setup-actions">
-            <button type="button" onClick={handleAutoGenerate}>Auto Generate</button>
+            <button type="button" disabled={isLoading} onClick={handleAutoGenerate}>Auto Generate</button>
             <button type="button" onClick={handleRefreshFit}>Refresh / Fit</button>
+            <button type="button" aria-pressed={previewMode === "overview"}
+              onClick={() => { setPreviewMode("overview"); setStatus("Full profile overview"); }}>Full Profile Overview</button>
+            <button type="button" aria-pressed={previewMode === "selected"} disabled={selectedPanelIndex == null}
+              onClick={() => { setPreviewMode("selected"); setStatus("Selected panel preview"); }}>Selected Panel Preview</button>
           </div>
+          {selectedPanelIndex != null && draftPanels[selectedPanelIndex] && (
+            <div className="panel-move-controls" aria-label={`Move Panel ${draftPanels[selectedPanelIndex].panel}`}>
+              <strong>Move P{draftPanels[selectedPanelIndex].panel}</strong>
+              <button type="button" onClick={() => movePanel(selectedPanelIndex, -10, 0)} aria-label="Move selected panel 10 feet downstream">← 10 ft</button>
+              <button type="button" onClick={() => movePanel(selectedPanelIndex, 10, 0)} aria-label="Move selected panel 10 feet upstream">10 ft →</button>
+              <button type="button" onClick={() => movePanel(selectedPanelIndex, 0, -1)} aria-label="Move selected panel down 1 foot">↓ 1 ft</button>
+              <button type="button" onClick={() => movePanel(selectedPanelIndex, 0, 1)} aria-label="Move selected panel up 1 foot">1 ft ↑</button>
+              <span>Dragging or moving preserves its width, height, and saved scales.</span>
+            </div>
+          )}
         </div>
 
         <div className="panel-setup-body">
@@ -515,6 +771,7 @@ export default function PanelSetupDialog({
                 <thead>
                   <tr>
                     <th>Panel</th>
+                    <th>Suffix</th>
                     <th>Starting Station</th>
                     <th>Ending Station</th>
                     <th>Starting Elevation</th>
@@ -523,38 +780,59 @@ export default function PanelSetupDialog({
                 </thead>
                 <tbody>
                   {draftPanels.map((panel, index) => (
-                    <tr key={panel.panel ?? index}>
-                      <td>{panel.panel}</td>
+                    <tr key={`${panel.panel}-${index}`} className={selectedPanelIndex === index ? "selected" : ""}
+                      tabIndex={0} role="button" aria-label={`Select Panel ${panel.display_id ?? panel.panel}`}
+                      onClick={() => setSelectedPanelIndex(index)}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedPanelIndex(index); } }}>
+                      <td>Panel {panel.display_id ?? panel.panel}</td>
                       <td>
                         <input
-                          type="number"
-                          step="0.01"
-                          value={formatDisplayNumber(panel.start_station)}
-                          onChange={(e) => updatePanel(index, "start_station", e.target.value)}
+                          disabled={isLoading}
+                          type="text"
+                          maxLength={3}
+                          value={panel.panel_suffix ?? ""}
+                          aria-label={`Suffix for panel ${panel.panel}`}
+                          onChange={(e) => updatePanel(index, "panel_suffix", e.target.value)}
                         />
                       </td>
                       <td>
                         <input
-                          type="number"
-                          step="0.01"
-                          value={formatDisplayNumber(panel.end_station)}
-                          onChange={(e) => updatePanel(index, "end_station", e.target.value)}
+                          disabled={isLoading}
+                          type="text"
+                          inputMode="decimal"
+                          value={numericInputs[panelNumericInputKey(index, "start_station")] ?? ""}
+                          onChange={(e) => updateNumericInput(index, "start_station", e.target.value)}
+                          onBlur={() => commitNumericInput(index, "start_station")}
                         />
                       </td>
                       <td>
                         <input
-                          type="number"
-                          step="0.01"
-                          value={formatDisplayNumber(panel.start_elevation)}
-                          onChange={(e) => updatePanel(index, "start_elevation", e.target.value)}
+                          disabled={isLoading}
+                          type="text"
+                          inputMode="decimal"
+                          value={numericInputs[panelNumericInputKey(index, "end_station")] ?? ""}
+                          onChange={(e) => updateNumericInput(index, "end_station", e.target.value)}
+                          onBlur={() => commitNumericInput(index, "end_station")}
                         />
                       </td>
                       <td>
                         <input
-                          type="number"
-                          step="0.01"
-                          value={formatDisplayNumber(panel.end_elevation)}
-                          onChange={(e) => updatePanel(index, "end_elevation", e.target.value)}
+                          disabled={isLoading}
+                          type="text"
+                          inputMode="decimal"
+                          value={numericInputs[panelNumericInputKey(index, "start_elevation")] ?? ""}
+                          onChange={(e) => updateNumericInput(index, "start_elevation", e.target.value)}
+                          onBlur={() => commitNumericInput(index, "start_elevation")}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          disabled={isLoading}
+                          type="text"
+                          inputMode="decimal"
+                          value={numericInputs[panelNumericInputKey(index, "end_elevation")] ?? ""}
+                          onChange={(e) => updateNumericInput(index, "end_elevation", e.target.value)}
+                          onBlur={() => commitNumericInput(index, "end_elevation")}
                         />
                       </td>
                     </tr>
@@ -565,7 +843,23 @@ export default function PanelSetupDialog({
           </div>
 
           <div className="panel-setup-preview-panel">
-            <div className="panel-setup-preview-header">Profile / Panel Preview</div>
+            <div className="panel-setup-preview-header">
+              <span><strong>{previewMode === "overview" ? "Full Profile Overview" : "Selected Panel Preview"}</strong> · Selected WSEL (solid, gaps retained) / Ground (dashed)</span>
+              <span>Drag inside to move. Drag an edge to resize its engineering bounds. Saved scales remain fixed.</span>
+            </div>
+            {preview && preview.outOfModelPanels.length > 0 && (
+              <div className="panel-extent-warning" role="status">
+                Panel {preview.outOfModelPanels.map((panel) => panel.display_id ?? panel.panel).join(", ")} extends beyond the available model station range {formatDisplayNumber(preview.availableMinStation)}–{formatDisplayNumber(preview.availableMaxStation)} ft. This is not automatically clamped; complete Revision Limits coverage is still required.
+              </div>
+            )}
+            <div className="panel-stitch-summary" aria-label="Panel stitching status">
+              {stitching.length === 0 ? <span>One panel; no stitch boundaries.</span> : stitching.map((item) => (
+                <span key={`${item.fromPanel}-${item.toPanel}`} className={`panel-stitch panel-stitch--${item.kind.toLowerCase()}`}>
+                  P{item.fromPanel}→P{item.toPanel}: {item.kind === "SHARED" ? `shared at ${formatDisplayNumber(item.start)} ft` : item.kind === "OVERLAP" ? `overlap ${formatDisplayNumber(item.start)}–${formatDisplayNumber(item.end)} ft` : `GAP ${formatDisplayNumber(item.start)}–${formatDisplayNumber(item.end)} ft`}
+                  {item.verticalOffset ? " · different elevation windows" : ""}
+                </span>
+              ))}
+            </div>
             {preview ? (
               <svg
                 ref={svgRef}
@@ -576,10 +870,25 @@ export default function PanelSetupDialog({
                 onPointerUp={handleSvgPointerUp}
                 onPointerCancel={handleSvgPointerUp}
               >
+                <defs>
+                  <clipPath id="panel-setup-drawing-clip">
+                    <rect x={preview.drawingClip.x} y={preview.drawingClip.y} width={preview.drawingClip.width} height={preview.drawingClip.height} />
+                  </clipPath>
+                </defs>
                 <rect x="0" y="0" width="100" height="100" fill="#f6f7f8" />
+
+                {preview.viewDomain.xMin < preview.availableMinStation && (
+                  <rect className="panel-outside-model" x={preview.plot.left} y={preview.plot.top}
+                    width={Math.max(0, preview.stationToX(preview.availableMinStation) - preview.plot.left)} height={preview.plot.height} />
+                )}
+                {preview.viewDomain.xMax > preview.availableMaxStation && (
+                  <rect className="panel-outside-model" x={preview.stationToX(preview.availableMaxStation)} y={preview.plot.top}
+                    width={Math.max(0, 100 - preview.plot.right - preview.stationToX(preview.availableMaxStation))} height={preview.plot.height} />
+                )}
 
                 {revisionStart != null && revisionEnd != null && (
                   <rect
+                    clipPath="url(#panel-setup-drawing-clip)"
                     x={preview.stationToX(revisionStart)}
                     y={preview.plot.top}
                     width={Math.max(0, preview.stationToX(revisionEnd) - preview.stationToX(revisionStart))}
@@ -591,7 +900,26 @@ export default function PanelSetupDialog({
                   />
                 )}
 
-                <g>
+                <g aria-label="Panel stitching indicators">
+                  {stitching.map((item) => item.kind === "GAP" ? (
+                    <rect key={`stitch-${item.fromPanel}-${item.toPanel}`}
+                      x={preview.stationToX(item.start)} y={preview.plot.top}
+                      width={Math.max(0, preview.stationToX(item.end) - preview.stationToX(item.start))}
+                      height={preview.plot.height} fill="rgba(185,28,28,0.12)" stroke="#b91c1c" strokeDasharray="1 1" strokeWidth="0.35" />
+                  ) : item.kind === "OVERLAP" ? (
+                    <rect key={`stitch-${item.fromPanel}-${item.toPanel}`}
+                      x={preview.stationToX(item.start)} y={preview.plot.top}
+                      width={Math.max(0, preview.stationToX(item.end) - preview.stationToX(item.start))}
+                      height={preview.plot.height} fill="rgba(109,40,217,0.08)" stroke="#6d28d9" strokeWidth="0.3" />
+                  ) : (
+                    <line key={`stitch-${item.fromPanel}-${item.toPanel}`}
+                      x1={preview.stationToX(item.start)} x2={preview.stationToX(item.start)}
+                      y1={preview.plot.top} y2={100 - preview.plot.bottom}
+                      stroke="#087f5b" strokeWidth="0.55" />
+                  ))}
+                </g>
+
+                <g clipPath="url(#panel-setup-drawing-clip)">
                   {preview.yTicks.map((tick) => (
                     <g key={`y-${tick.value}`}>
                       <line x1={preview.plot.left} x2={100 - preview.plot.right} y1={tick.y} y2={tick.y} stroke="#e6edf3" strokeWidth="0.15" />
@@ -631,8 +959,38 @@ export default function PanelSetupDialog({
                           stroke={selectedPanelIndex === index ? "#196bd6" : "none"}
                           strokeWidth="1.5"
                           onClick={() => setSelectedPanelIndex(index)}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`Panel ${panel.display_id ?? panel.panel}; drag to move`}
+                          style={{cursor: "move"}}
+                          onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedPanelIndex(index); } }}
+                          onPointerDown={(event) => { event.preventDefault(); handlePanelPointerDown(event, index); }}
                         />
-                        <text x={centerX} y={Math.max(preview.plot.top + 6, centerY - 2)} fontSize="3.0" textAnchor="middle" fill="#1d2d40" fontWeight="500">P{panel.panel}</text>
+                        {selectedPanelIndex === index && (
+                          <g className="panel-resize-handles" aria-label={`Resize Panel ${panel.display_id ?? panel.panel}`}>
+                            <line className="panel-resize-handle panel-resize-handle--horizontal" data-resize-edge="left"
+                              x1={x} x2={x} y1={y} y2={y + height}
+                              aria-label="Resize starting station" role="slider"
+                              onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); handlePanelPointerDown(event, index, "left"); }} />
+                            <line className="panel-resize-handle panel-resize-handle--horizontal" data-resize-edge="right"
+                              x1={x + width} x2={x + width} y1={y} y2={y + height}
+                              aria-label="Resize ending station" role="slider"
+                              onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); handlePanelPointerDown(event, index, "right"); }} />
+                            <line className="panel-resize-handle panel-resize-handle--vertical" data-resize-edge="top"
+                              x1={x} x2={x + width} y1={y} y2={y}
+                              aria-label="Resize ending elevation" role="slider"
+                              onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); handlePanelPointerDown(event, index, "top"); }} />
+                            <line className="panel-resize-handle panel-resize-handle--vertical" data-resize-edge="bottom"
+                              x1={x} x2={x + width} y1={y + height} y2={y + height}
+                              aria-label="Resize starting elevation" role="slider"
+                              onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); handlePanelPointerDown(event, index, "bottom"); }} />
+                            <rect className="panel-resize-grip panel-resize-grip--horizontal" x={x - 0.75} y={centerY - 2} width="1.5" height="4" />
+                            <rect className="panel-resize-grip panel-resize-grip--horizontal" x={x + width - 0.75} y={centerY - 2} width="1.5" height="4" />
+                            <rect className="panel-resize-grip panel-resize-grip--vertical" x={centerX - 2} y={y - 0.75} width="4" height="1.5" />
+                            <rect className="panel-resize-grip panel-resize-grip--vertical" x={centerX - 2} y={y + height - 0.75} width="4" height="1.5" />
+                          </g>
+                        )}
+                        <text x={centerX} y={Math.max(preview.plot.top + 6, centerY - 2)} fontSize="3.0" textAnchor="middle" fill="#1d2d40" fontWeight="500">{panel.display_id ?? panel.panel}</text>
                       </g>
                     );
                   })}
@@ -648,21 +1006,17 @@ export default function PanelSetupDialog({
                       y2={100 - preview.plot.bottom}
                       stroke="#1d2d40"
                       strokeWidth={0.45}
-                      style={{ cursor: "ew-resize", shapeRendering: "crispEdges" }}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        handleBoundaryPointerDown(event, boundary.panelIndex, boundary.field);
-                      }}
+                      style={{ pointerEvents: "none", shapeRendering: "crispEdges" }}
                     />
                   ))}
                 </g>
 
-                <g>
-                  <polyline points={preview.primaryPoints.join(" ")} fill="none" stroke="#1d2d40" strokeWidth="0.6" />
-                  <polyline points={preview.invertPoints.join(" ")} fill="none" stroke="#4b5563" strokeWidth="0.4" strokeDasharray="2 2" />
+                <g clipPath="url(#panel-setup-drawing-clip)">
+                  {preview.primaryPoints.map((points,i) => <polyline key={`wsel-${i}`} data-profile-segment="wsel" points={points} fill="none" stroke="#1d2d40" strokeWidth="0.6" />)}
+                  {preview.invertPoints.map((points,i) => <polyline key={`ground-${i}`} points={points} fill="none" stroke="#4b5563" strokeWidth="0.4" strokeDasharray="2 2" />)}
                 </g>
 
-                <g>
+                <g clipPath="url(#panel-setup-drawing-clip)">
                   {preview.xTicks.map((tick) => (
                     <line key={`gridx-${tick.value}`} x1={tick.x} x2={tick.x} y1={preview.plot.top} y2={100 - preview.plot.bottom} stroke="#eef2f6" strokeWidth="0.15" />
                   ))}
@@ -671,13 +1025,13 @@ export default function PanelSetupDialog({
                   ))}
                 </g>
 
-                <g>
+                <g clipPath="url(#panel-setup-drawing-clip)">
                   {preview.crossSections.map((marker, index) => (
                     <line key={`xs-${marker.label ?? index}`} x1={marker.x} x2={marker.x} y1={100 - preview.plot.bottom} y2={100 - preview.plot.bottom + 2.2} stroke="#475569" strokeWidth="0.2" />
                   ))}
                 </g>
 
-                <g>
+                <g clipPath="url(#panel-setup-drawing-clip)">
                   <line x1={preview.plot.left} x2={100 - preview.plot.right} y1={100 - preview.plot.bottom} y2={100 - preview.plot.bottom} stroke="#475569" strokeWidth="0.35" />
                   <line x1={preview.plot.left} x2={preview.plot.left} y1={preview.plot.top} y2={100 - preview.plot.bottom} stroke="#475569" strokeWidth="0.35" />
                   <text x={preview.plot.left + 1} y={100 - preview.plot.bottom + 3.2} textAnchor="start" fontSize="2.6" fill="#374151">Station: {formatDisplayNumber(cursorPos.station)}</text>

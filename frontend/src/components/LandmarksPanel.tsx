@@ -34,6 +34,7 @@ export default function LandmarksPanel({ landmarks, onChange, onSave }: Props) {
             <input
               className="cell-input"
               value={lm.text}
+              aria-label={`Landmark ${i + 1} text`}
               placeholder="Label text"
               onChange={(e) => update(i, { text: e.target.value })}
             />
@@ -41,6 +42,7 @@ export default function LandmarksPanel({ landmarks, onChange, onSave }: Props) {
               className="cell-input"
               type="number"
               title="Distance (ft)"
+              aria-label={`Landmark ${i + 1} distance in feet`}
               value={lm.distance}
               onChange={(e) => update(i, { distance: parseFloat(e.target.value) || 0 })}
             />
@@ -48,10 +50,12 @@ export default function LandmarksPanel({ landmarks, onChange, onSave }: Props) {
               className="cell-input"
               type="number"
               title="Elevation"
+              aria-label={`Landmark ${i + 1} elevation`}
               value={lm.elevation}
               onChange={(e) => update(i, { elevation: parseFloat(e.target.value) || 0 })}
             />
             <select
+              aria-label={`Landmark ${i + 1} orientation`}
               value={lm.orientation}
               onChange={(e) => update(i, { orientation: e.target.value })}
             >
@@ -62,7 +66,7 @@ export default function LandmarksPanel({ landmarks, onChange, onSave }: Props) {
           </li>
         ))}
       </ul>
-      <button type="button" className="tool" onClick={onSave}>Save landmarks</button>
+      <button type="button" className="button button--primary" onClick={onSave}>Save landmarks</button>
     </div>
   );
 }

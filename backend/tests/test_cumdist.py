@@ -121,12 +121,12 @@ class MuncieIntegrationTests(unittest.TestCase):
         self.assertEqual(len(xs_rows), 61)
         self.assertTrue(math.isclose(xs_rows[0].cumdist, 15458.599994659424, abs_tol=1e-8))
         fresh = [row.cumdist for row in xs_rows]
-        wsel = [row.profiles["Maximum WSEL"] for row in xs_rows]
+        wsel = [row.profiles["unsteady-saved-maximum"] for row in xs_rows]
         ground = [row.minchel for row in xs_rows]
         order = [row.rs for row in xs_rows]
         recalc_cumdist(rows)
         self.assertEqual(fresh, [row.cumdist for row in xs_rows])
-        self.assertEqual(wsel, [row.profiles["Maximum WSEL"] for row in xs_rows])
+        self.assertEqual(wsel, [row.profiles["unsteady-saved-maximum"] for row in xs_rows])
         self.assertEqual(ground, [row.minchel for row in xs_rows])
         self.assertEqual(order, [row.rs for row in xs_rows])
         lateral_rows = {row.rs: row for row in rows if row.struc == "LATERAL"}
@@ -143,7 +143,7 @@ class MuncieIntegrationTests(unittest.TestCase):
         opened = open_source(OpenRequest(path=str(MUNCIE_HDF)))
         sid = opened["session_id"]
         profile = get_profile(
-            sid, profile=None, profiles="Maximum WSEL", reach_idx=0, label_every=5,
+            sid, profile=None, profiles="unsteady-saved-maximum", reach_idx=0, label_every=5,
         )
         distances = [row["cumdist"] for row in profile["cross_sections"]]
         self.assertTrue(math.isclose(max(distances), 15458.599994659424, abs_tol=1e-8))
@@ -158,13 +158,17 @@ class MuncieIntegrationTests(unittest.TestCase):
         self.assertEqual(lateral_rows["7300"]["cumdist"], by_rs["7490.833"]["cumdist"])
         self.assertEqual(lateral_rows["7300"]["weir_width"], 20.0)
         self.assertEqual(lateral_rows["7300"]["connected_us_rs"], "7490.833")
+        # Phase 3 deliberately blocks unvalidated lateral extent instead of
+        # drawing the old authoritative-looking anchor/crest schematic.
+        from fastapi import HTTPException
         for output_format in ("pdf", "dxf"):
-            result = export_profile(ExportOptions(
-                session_id=sid, format=output_format,
-                profile_names=["Maximum WSEL"],
-            ))
-            self.assertGreater(result["size_bytes"], 0)
-            self.assertTrue(Path(result["path"]).exists())
+            with self.assertRaises(HTTPException) as caught:
+                export_profile(ExportOptions(session_id=sid, format=output_format,
+                                             profile_names=["unsteady-saved-maximum"]))
+            self.assertEqual(caught.exception.status_code,400)
+            self.assertIn("LATERAL",caught.exception.detail)
+            self.assertIn("White / Muncie",caught.exception.detail)
+
 
 
 @unittest.skipUnless(NORTH_HDF.exists(), "1033 North fixture is not available")
@@ -198,7 +202,7 @@ class NorthCulvertIntegrationTests(unittest.TestCase):
     def test_profile_pdf_and_dxf_use_distinct_face_coordinates(self):
         opened = open_source(OpenRequest(path=str(NORTH_HDF)))
         sid = opened["session_id"]
-        profile = get_profile(sid, profile=None, profiles="PF 1", reach_idx=0, label_every=5)
+        profile = get_profile(sid, profile=None, profiles="steady-row-0", reach_idx=0, label_every=5)
         faces = {row["type"]: row for row in profile["structures"]}
         self.assertTrue(math.isclose(faces["CULVERT-UP"]["cumdist"], 2629.289993286133, abs_tol=1e-8))
         self.assertTrue(math.isclose(faces["CULVERT-DN"]["cumdist"], 2519.2899920654295, abs_tol=1e-8))
@@ -211,7 +215,7 @@ class NorthCulvertIntegrationTests(unittest.TestCase):
             return original_text(axis, x, y, text, *args, **kwargs)
         with patch.object(Axes, "text", new=capture_text):
             pdf = export_profile(ExportOptions(
-                session_id=sid, format="pdf", profile_names=["PF 1"],
+                session_id=sid, format="pdf", profile_names=["steady-row-0"],
             ))
         self.assertGreater(pdf["size_bytes"], 0)
         self.assertEqual(sorted(plotted_structure_x), sorted([
@@ -219,7 +223,7 @@ class NorthCulvertIntegrationTests(unittest.TestCase):
         ]))
 
         dxf = export_profile(ExportOptions(
-            session_id=sid, format="dxf", profile_names=["PF 1"],
+            session_id=sid, format="dxf", profile_names=["steady-row-0"],
         ))
         doc = ezdxf.readfile(dxf["path"])
         centers = []
