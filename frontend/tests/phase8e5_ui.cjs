@@ -8,11 +8,19 @@ const drafts = require(path.join(root, "panelDraft.js"));
 const panels = require(path.join(root, "panelVisualization.js"));
 const apiContract = require(path.join(root, "api", "client.js"));
 const css = fs.readFileSync(path.resolve(__dirname, "..", "src", "styles.css"), "utf8");
+const exportDialog = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "ExportDialog.tsx"), "utf8");
 const panelSetupSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "PanelSetupDialog.tsx"), "utf8");
 const appSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "App.tsx"), "utf8");
+assert.match(appSource, /lazy\(\(\)\s*=>\s*import\("\.\/components\/ProfileChart"\)\)/,
+  "the Plotly profile workspace should load as a separate production chunk");
 const controlsSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "ControlsRow.tsx"), "utf8");
 const engineeringActionsSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "EngineeringActionsDialog.tsx"), "utf8");
+const exportDialogSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "ExportDialog.tsx"), "utf8");
 const apiSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "api", "client.ts"), "utf8");
+const headerSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "Header.tsx"), "utf8");
+const revisionSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "RevisionLimits.tsx"), "utf8");
+const profileTableSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "ProfileTable.tsx"), "utf8");
+const statusSource = fs.readFileSync(path.resolve(__dirname, "..", "src", "components", "EngineeringStatusPanel.tsx"), "utf8");
 
 const original = [{
   panel: 7,
@@ -29,6 +37,14 @@ const original = [{
 
 let checks = 0;
 const check = (fn) => { fn(); checks += 1; };
+
+check(() => {
+  assert.match(exportDialog, /value="NAVD88">NAVD 88/);
+  assert.match(exportDialog, /value="NGVD29">NGVD 29/);
+  assert.match(exportDialog, /value="OTHER">Other/);
+  assert.match(exportDialog, /Other datum label/);
+  assert.match(exportDialog, /Enter verified datum label/);
+});
 
 check(() => assert.equal(drafts.parseFinitePanelInput("", "Value").ok, false));
 check(() => assert.equal(drafts.parseFinitePanelInput("-", "Value").ok, false));
@@ -48,6 +64,60 @@ check(() => {
   const result = drafts.materializePanelNumericInputs(original, replacement);
   assert.equal(result.ok, true);
   assert.equal(result.panels[0].start_station, 25.75);
+});
+check(() => {
+  assert.match(headerSource, /Open HEC-RAS Model/);
+  assert.match(headerSource, /Open Saved RAS-Plot Project/);
+  assert.doesNotMatch(controlsSource, />Auto Letters</);
+  assert.doesNotMatch(controlsSource, />Fix Drawdowns</);
+  assert.match(appSource, /Single flooding source selected automatically/);
+});
+check(() => {
+  assert.match(revisionSource, /Downstream cross section/);
+  assert.match(revisionSource, /row\.river.*row\.reach.*row\.rs/);
+  assert.match(revisionSource, /setStartInput\(String\(row\.cumdist\)\)/);
+  assert.match(revisionSource, /setEndInput\(String\(row\.cumdist\)\)/);
+});
+check(() => {
+  assert.match(profileTableSource, /raw_wsel_by_profile/);
+  assert.match(profileTableSource, /adjustment_by_profile/);
+  assert.match(profileTableSource, /drawdown_by_profile/);
+  assert.match(profileTableSource, /Source \/ Working/);
+  assert.match(profileTableSource, /profile-value-adjusted/);
+  assert.match(profileTableSource, /Drawdown detected/);
+  assert.match(profileTableSource, /Auto-corrected/);
+  assert.match(profileTableSource, /Manual edit/);
+});
+check(() => {
+  assert.match(statusSource, /Structure validation blocks engineering export/);
+  assert.match(statusSource, /missing_fields/);
+  assert.match(statusSource, /Open in profile table/);
+  assert.match(panelSetupSource, /Add Panel/);
+  assert.match(panelSetupSource, /Remove Selected/);
+  assert.match(panelSetupSource, /Move Earlier/);
+  assert.match(panelSetupSource, /Exclude Selected/);
+  assert.match(panelSetupSource, /Restore Panel/);
+  assert.match(panelSetupSource, /Grid snapping changes preview tick labels only/);
+  assert.match(panelSetupSource, /revisionStart[\s\S]*revisionEnd[\s\S]*api\.putPanels/);
+});
+check(() => {
+  assert.match(statusSource, /Why panel review is required/);
+  assert.match(statusSource, /Exact field attribution is unavailable/);
+  assert.match(statusSource, /change\.previous/);
+  assert.match(statusSource, /change\.current/);
+  assert.match(statusSource, /Affected saved panels/);
+  assert.match(statusSource, /Open Panel Setup to review/);
+  assert.match(css, /\.profile-value-drawdown/);
+  assert.match(css, /\.profile-table--workspace \.table-scroll--workspace\s*\{[^}]*overflow/s);
+});
+check(() => {
+  assert.match(profileTableSource, /source-structure-name/);
+  assert.match(profileTableSource, /Optional reviewer name/);
+  assert.match(profileTableSource, /Reviewer-entered override/);
+  assert.match(profileTableSource, /Source-backed structure geometry is read-only/);
+  assert.match(profileTableSource, /source_faces/);
+  assert.match(profileTableSource, /low chord/);
+  assert.match(apiSource, /name_provenance/);
 });
 check(() => {
   const empty = { ...inputs, [drafts.panelNumericInputKey(0, "end_station")]: "" };
@@ -183,13 +253,15 @@ check(() => assert.match(css, /\.export-dialog \.export-footer\s*\{[^}]*flex-shr
 check(() => assert.match(css, /@media \(max-height:\s*700px\)/));
 
 check(() => {
-  assert.match(controlsSource, />Auto Letters<\/button>/);
-  assert.match(controlsSource, />Fix Drawdowns<\/button>/);
+  assert.doesNotMatch(controlsSource, />Auto Letters<\/button>/);
+  assert.doesNotMatch(controlsSource, />Fix Drawdowns<\/button>/);
+  assert.match(appSource, />Auto Letters<\/button>/);
+  assert.match(appSource, />Fix Drawdowns<\/button>/);
   assert.doesNotMatch(controlsSource, />Letters<\/button>|>Drawdowns<\/button>/);
 });
 check(() => {
-  assert.match(appSource, /onFixDrawdowns=\{\(\) => setEngineeringAction\("fix-drawdowns"\)\}/);
-  assert.match(appSource, /onAutoLetter=\{\(\) => setEngineeringAction\("auto-letters"\)\}/);
+  assert.match(appSource, /setEngineeringAction\("fix-drawdowns"\)/);
+  assert.match(appSource, /setEngineeringAction\("auto-letters"\)/);
   assert.doesNotMatch(appSource, /async function onFixDrawdowns|async function onAutoLetter/);
 });
 check(() => {
@@ -313,6 +385,58 @@ check(() => {
   assert.match(engineeringActionsSource, /The server rejected the operation/);
   assert.match(engineeringActionsSource, /return \(\) => \{ requestId\.current \+= 1; \}/);
   assert.match(engineeringActionsSource, /affected_profiles == null[\s\S]*affected_profiles\.length/);
+});
+check(() => {
+  assert.match(exportDialogSource, /savedPanelCount === 0[\s\S]*Open Panel Setup, create or load panels/);
+  assert.match(exportDialogSource, /panelsStale[\s\S]*Saved panels require review/);
+  assert.match(exportDialogSource, /selectedPanelCount === 0[\s\S]*Select one saved panel/);
+  assert.match(exportDialogSource, /selectedPanelCount > 1[\s\S]*exports one panel at a time/);
+  assert.match(exportDialogSource, /disabled=\{!cadReview\.enabled\}[\s\S]*aria-describedby="cad-review-requirement"/);
+  assert.match(exportDialogSource, /raw station\/elevation DXF with aligned PNG\/PGW/);
+});
+check(() => {
+  assert.match(apiSource, /panels\/content-analysis/);
+  assert.match(panelSetupSource, /Analyze Engineering Content/);
+  assert.match(panelSetupSource, /Fit Panel to Engineering Content/);
+  assert.match(panelSetupSource, /Suggested limits are proposals only|Proposed limits for Panel/);
+});
+check(() => {
+  assert.match(panelSetupSource, /requires_scale_or_page_change/);
+  assert.match(panelSetupSource, /Separate engineering decision required/);
+  assert.match(panelSetupSource, /No scale will be changed here/);
+  assert.match(panelSetupSource, /disabled=\{fitProposal\.requires_scale_or_page_change\}/);
+});
+check(() => {
+  assert.match(panelSetupSource, /setDraftPanels\(next\)/);
+  assert.match(panelSetupSource, /start_elevation: fitProposal\.suggested_minimum_elevation/);
+  assert.match(panelSetupSource, /end_elevation: fitProposal\.suggested_maximum_elevation/);
+  assert.match(panelSetupSource, /Review the preview, then Apply to approve them/);
+  assert.match(css, /\.panel-fit-proposal/);
+  assert.match(css, /\.panel-content-status--review/);
+});
+check(() => {
+  assert.match(panelSetupSource, /Engineering sheet size/);
+  assert.match(panelSetupSource, /ANSI C — 22×17 landscape/);
+  assert.match(panelSetupSource, /Changing the sheet does not change panel bounds or scales/);
+  assert.match(panelSetupSource, /usable plot/);
+  assert.match(panelSetupSource, /remaining_horizontal_clearance_inches/);
+  assert.match(panelSetupSource, /select a larger sheet, change scale, or split\/redesign the panel/);
+});
+check(() => {
+  assert.match(profileTableSource, /structuresByUpstream/);
+  assert.match(profileTableSource, /const pageSize = 500/);
+  assert.match(profileTableSource, /visibleRows\.map/);
+  assert.match(profileTableSource, /Rows \{page \* pageSize \+ 1\}/);
+  assert.match(profileTableSource, /Math\.floor\(index \/ pageSize\)/);
+});
+check(() => {
+  assert.match(apiSource, /export\/start/);
+  assert.match(apiSource, /export-jobs\/\$\{encodeURIComponent\(sid\)\}/);
+  assert.match(apiSource, /method: "DELETE"/);
+  assert.match(exportDialogSource, /Cancel Export/);
+  assert.match(exportDialogSource, /DRAWING_DEFINITION|exportStatus\?\.stage/);
+  assert.match(exportDialogSource, /Export cancelled\. No artifact was created/);
+  assert.match(exportDialogSource, /assertContext\(operationVersion\)/);
 });
 
 console.log(`PASS: ${checks} Phase 8E-5 UI contracts`);

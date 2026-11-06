@@ -1,0 +1,1582 @@
+{
+  "path": "C:\\Users\\pateljr\\OneDrive - CDM Smith\\Desktop\\RAS-Plot-Replica\\Muncie\\Muncie.p04.hdf",
+  "geometry_source": "C:\\Users\\pateljr\\OneDrive - CDM Smith\\Desktop\\RAS-Plot-Replica\\Muncie\\Muncie.p04.hdf",
+  "hdf_attributes": {
+    "File Type": "HEC-RAS Results",
+    "File Version": "HEC-RAS 6.4.1 June 2023",
+    "Units System": "US Customary"
+  },
+  "xs_count": 61,
+  "structure_count": 2,
+  "initial_extent": [
+    0.0,
+    15485.51999282837
+  ],
+  "recalc_extent": [
+    0.0,
+    15498.599994659424
+  ],
+  "xs_only_recalc_extent": [
+    0.0,
+    15458.599994659424
+  ],
+  "live_matches_fresh": true,
+  "profile_matches_live": true,
+  "structure_profile_matches_live": true,
+  "structures": [
+    {
+      "raw": {
+        "Type": "Lateral",
+        "Mode": "Weir/Gate/Culverts",
+        "River": "White",
+        "Reach": "Muncie",
+        "RS": "13214",
+        "Connection": "",
+        "Groupname": "White, Muncie (13214)",
+        "US Type": "XS",
+        "US River": "White",
+        "US Reach": "Muncie",
+        "US RS": "13214.80",
+        "US SA/2D": "",
+        "DS Type": "2D",
+        "DS River": "",
+        "DS Reach": "",
+        "DS RS": "",
+        "DS SA/2D": "2D Interior Area",
+        "Node Name": "",
+        "Description": "",
+        "Last Edited": "26Dec2019 14:42:56",
+        "Upstream Distance": null,
+        "Weir Width": 20.0,
+        "Weir Max Submergence": 0.9800000190734863,
+        "Weir Min Elevation": null,
+        "Weir Coef": 2.0,
+        "Weir Shape": "Broad Crested",
+        "Weir Design EG Head": null,
+        "Weir Design Spillway HT": null,
+        "Weir US Slope": 0.0,
+        "Weir DS Slope": 0.0,
+        "Linear Routing Positive Coef": 0.05000000074505806,
+        "Linear Routing Negative Coef": 0.05000000074505806,
+        "Linear Routing Elevation": null,
+        "LW HW Position": 0,
+        "LW TW Position": 0,
+        "LW HW Distance": 3.5999999046325684,
+        "LW TW Distance": null,
+        "LW Span Multiple": 0,
+        "Use 2D for Overflow": 0,
+        "Use Velocity into 2D": 0,
+        "Hagers Weir Coef": null,
+        "Hagers Height": null,
+        "Hagers Slope": null,
+        "Hagers Angle": null,
+        "Hagers Radius": null,
+        "Use WS for Weir Reference": 1,
+        "Pilot Flow": null,
+        "Culvert Groups": 0,
+        "Culverts Flap Gates": 0,
+        "Gate Groups": 0,
+        "HTAB FF Points": 0,
+        "HTAB RC Count": 0,
+        "HTAB RC Points": 0,
+        "HTAB HW Max": 0.0,
+        "HTAB TW Max": 0.0,
+        "HTAB Max Flow": 0.0,
+        "Cell Spacing Near": null,
+        "Cell Spacing Far": null,
+        "Near Repeats": 0,
+        "Protection Radius": 0,
+        "Use Friction in Momentum": 0,
+        "Use Weight in Momentum": 0,
+        "Use Critical US": 0,
+        "Use EG for Pressure Criteria": 0,
+        "Ice Option": 0,
+        "Weir Skew": 0.0,
+        "Pier Skew": 0.0,
+        "BR Contraction": 0.0,
+        "BR Expansion": 0.0,
+        "BR US Left Bank": 0.0,
+        "BR US Right Bank": 0.0,
+        "BR DS Left Bank": 0.0,
+        "BR DS Right Bank": 0.0,
+        "XS US Left Bank": null,
+        "XS US Right Bank": null,
+        "XS DS Left Bank": null,
+        "XS DS Right Bank": null,
+        "US Ineff Left Sta": null,
+        "US Ineff Left Elev": null,
+        "US Ineff Right Sta": null,
+        "US Ineff Right Elev": null,
+        "DS Ineff Left Sta": null,
+        "DS Ineff Left Elev": null,
+        "DS Ineff Right Sta": null,
+        "DS Ineff Right Elev": null,
+        "Use Override HW Connectivity": 1,
+        "Use Override TW Connectivity": 0,
+        "Use RC Family": 0,
+        "Use Override HTabIBCurves": 0,
+        "SNN ID": 19,
+        "Default Centerline": 0
+      },
+      "parsed": {
+        "river": "White",
+        "reach": "Muncie",
+        "rs": "13214",
+        "type": "Lateral",
+        "name": "White, Muncie (13214)",
+        "upstream_distance": 0.0,
+        "weir_width": 20.0,
+        "low_chord": 952.0,
+        "high_chord": 952.0,
+        "minchel": null,
+        "poly_points": [],
+        "profile_data": [
+          [
+            0.0,
+            952.2000122070312
+          ],
+          [
+            1010.260009765625,
+            952.0
+          ]
+        ],
+        "index": 0,
+        "us_rs": "",
+        "ds_rs": "",
+        "culvert_length": null,
+        "culvert_us_distance": null,
+        "invert_us": null,
+        "invert_ds": null
+      },
+      "working": [
+        {
+          "id": 18,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "13214",
+          "struc": "LATERAL",
+          "length_chnl": 20.0,
+          "cumdist": 12817.360008239746,
+          "minchel": 939.6500244140625,
+          "low_chord": 952.0,
+          "high_chord": 952.0,
+          "label_letter": null,
+          "label_text": null,
+          "profiles": {
+            "Maximum WSEL": null,
+            "step 0": null,
+            "step 9": null,
+            "step 18": null,
+            "step 27": null,
+            "step 36": null,
+            "step 45": null,
+            "step 54": null,
+            "step 63": null,
+            "step 72": null,
+            "step 81": null,
+            "step 90": null,
+            "step 99": null,
+            "step 108": null,
+            "step 117": null,
+            "step 126": null,
+            "step 135": null,
+            "step 144": null,
+            "step 153": null,
+            "step 162": null,
+            "step 171": null,
+            "step 180": null,
+            "step 189": null,
+            "step 198": null,
+            "step 207": null,
+            "step 216": null,
+            "step 225": null,
+            "step 234": null,
+            "step 243": null,
+            "step 252": null,
+            "step 261": null,
+            "step 270": null,
+            "step 279": null,
+            "step 288": null
+          },
+          "kind": "struct",
+          "source_xs_index": 16
+        }
+      ],
+      "neighbors": [
+        {
+          "id": 16,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "13490.47",
+          "kind": "xs",
+          "structure": "",
+          "raw_left": 273.2900085449219,
+          "raw_channel": 275.6600036621094,
+          "raw_right": 265.6700134277344,
+          "working_length": 275.6600036621094,
+          "initial_cumdist": 13214.800010681152,
+          "live_cumdist": 13214.800010681152,
+          "recalc_all_cumdist": 13292.810020446777,
+          "recalc_xs_only": 13252.810020446777,
+          "profile_cumdist": 13214.800010681152
+        },
+        {
+          "id": 17,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "13214.80",
+          "kind": "xs",
+          "structure": "",
+          "raw_left": 442.6199951171875,
+          "raw_channel": 397.44000244140625,
+          "raw_right": 283.45001220703125,
+          "working_length": 397.44000244140625,
+          "initial_cumdist": 12817.360008239746,
+          "live_cumdist": 12817.360008239746,
+          "recalc_all_cumdist": 13017.150016784668,
+          "recalc_xs_only": 12977.150016784668,
+          "profile_cumdist": 12817.360008239746
+        },
+        {
+          "id": 19,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "12817.36",
+          "kind": "xs",
+          "structure": "",
+          "raw_left": 343.3500061035156,
+          "raw_channel": 325.3399963378906,
+          "raw_right": 250.8300018310547,
+          "working_length": 325.3399963378906,
+          "initial_cumdist": 12492.020011901855,
+          "live_cumdist": 12492.020011901855,
+          "recalc_all_cumdist": 12599.710014343262,
+          "recalc_xs_only": 12579.710014343262,
+          "profile_cumdist": 12492.020011901855
+        }
+      ],
+      "profile_chainage_extent": [
+        0.0,
+        1010.260009765625
+      ]
+    },
+    {
+      "raw": {
+        "Type": "Lateral",
+        "Mode": "Weir/Gate/Culverts",
+        "River": "White",
+        "Reach": "Muncie",
+        "RS": "7300",
+        "Connection": "",
+        "Groupname": "White, Muncie (7300)",
+        "US Type": "XS",
+        "US River": "White",
+        "US Reach": "Muncie",
+        "US RS": "7490.833",
+        "US SA/2D": "",
+        "DS Type": "2D",
+        "DS River": "",
+        "DS Reach": "",
+        "DS RS": "",
+        "DS SA/2D": "2D Interior Area",
+        "Node Name": "",
+        "Description": "",
+        "Last Edited": "26Dec2019 14:44:23",
+        "Upstream Distance": null,
+        "Weir Width": 20.0,
+        "Weir Max Submergence": 0.9800000190734863,
+        "Weir Min Elevation": null,
+        "Weir Coef": 2.0,
+        "Weir Shape": "Broad Crested",
+        "Weir Design EG Head": null,
+        "Weir Design Spillway HT": null,
+        "Weir US Slope": 0.0,
+        "Weir DS Slope": 0.0,
+        "Linear Routing Positive Coef": 0.05000000074505806,
+        "Linear Routing Negative Coef": 0.05000000074505806,
+        "Linear Routing Elevation": null,
+        "LW HW Position": 0,
+        "LW TW Position": 0,
+        "LW HW Distance": 175.0,
+        "LW TW Distance": null,
+        "LW Span Multiple": 0,
+        "Use 2D for Overflow": 0,
+        "Use Velocity into 2D": 0,
+        "Hagers Weir Coef": null,
+        "Hagers Height": null,
+        "Hagers Slope": null,
+        "Hagers Angle": null,
+        "Hagers Radius": null,
+        "Use WS for Weir Reference": 1,
+        "Pilot Flow": null,
+        "Culvert Groups": 0,
+        "Culverts Flap Gates": 0,
+        "Gate Groups": 0,
+        "HTAB FF Points": 0,
+        "HTAB RC Count": 0,
+        "HTAB RC Points": 0,
+        "HTAB HW Max": 0.0,
+        "HTAB TW Max": 0.0,
+        "HTAB Max Flow": 0.0,
+        "Cell Spacing Near": null,
+        "Cell Spacing Far": null,
+        "Near Repeats": 0,
+        "Protection Radius": 0,
+        "Use Friction in Momentum": 0,
+        "Use Weight in Momentum": 0,
+        "Use Critical US": 0,
+        "Use EG for Pressure Criteria": 0,
+        "Ice Option": 0,
+        "Weir Skew": 0.0,
+        "Pier Skew": 0.0,
+        "BR Contraction": 0.0,
+        "BR Expansion": 0.0,
+        "BR US Left Bank": 0.0,
+        "BR US Right Bank": 0.0,
+        "BR DS Left Bank": 0.0,
+        "BR DS Right Bank": 0.0,
+        "XS US Left Bank": null,
+        "XS US Right Bank": null,
+        "XS DS Left Bank": null,
+        "XS DS Right Bank": null,
+        "US Ineff Left Sta": null,
+        "US Ineff Left Elev": null,
+        "US Ineff Right Sta": null,
+        "US Ineff Right Elev": null,
+        "DS Ineff Left Sta": null,
+        "DS Ineff Left Elev": null,
+        "DS Ineff Right Sta": null,
+        "DS Ineff Right Elev": null,
+        "Use Override HW Connectivity": 1,
+        "Use Override TW Connectivity": 0,
+        "Use RC Family": 0,
+        "Use Override HTabIBCurves": 0,
+        "SNN ID": 40,
+        "Default Centerline": 0
+      },
+      "parsed": {
+        "river": "White",
+        "reach": "Muncie",
+        "rs": "7300",
+        "type": "Lateral",
+        "name": "White, Muncie (7300)",
+        "upstream_distance": 0.0,
+        "weir_width": 20.0,
+        "low_chord": 944.5,
+        "high_chord": 944.5,
+        "minchel": null,
+        "poly_points": [],
+        "profile_data": [
+          [
+            0.0,
+            944.7999877929688
+          ],
+          [
+            1157.0,
+            945.2999877929688
+          ],
+          [
+            2235.0,
+            945.0
+          ],
+          [
+            3805.0,
+            944.7999877929688
+          ],
+          [
+            4185.0,
+            944.5
+          ],
+          [
+            6092.97021484375,
+            944.7999877929688
+          ]
+        ],
+        "index": 1,
+        "us_rs": "",
+        "ds_rs": "",
+        "culvert_length": null,
+        "culvert_us_distance": null,
+        "invert_us": null,
+        "invert_ds": null
+      },
+      "working": [
+        {
+          "id": 40,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "7300",
+          "struc": "LATERAL",
+          "length_chnl": 20.0,
+          "cumdist": 6868.350067138672,
+          "minchel": 922.4199829101562,
+          "low_chord": 944.5,
+          "high_chord": 944.5,
+          "label_letter": null,
+          "label_text": null,
+          "profiles": {
+            "Maximum WSEL": null,
+            "step 0": null,
+            "step 9": null,
+            "step 18": null,
+            "step 27": null,
+            "step 36": null,
+            "step 45": null,
+            "step 54": null,
+            "step 63": null,
+            "step 72": null,
+            "step 81": null,
+            "step 90": null,
+            "step 99": null,
+            "step 108": null,
+            "step 117": null,
+            "step 126": null,
+            "step 135": null,
+            "step 144": null,
+            "step 153": null,
+            "step 162": null,
+            "step 171": null,
+            "step 180": null,
+            "step 189": null,
+            "step 198": null,
+            "step 207": null,
+            "step 216": null,
+            "step 225": null,
+            "step 234": null,
+            "step 243": null,
+            "step 252": null,
+            "step 261": null,
+            "step 270": null,
+            "step 279": null,
+            "step 288": null
+          },
+          "kind": "struct",
+          "source_xs_index": 37
+        }
+      ],
+      "neighbors": [
+        {
+          "id": 38,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "7490.833",
+          "kind": "xs",
+          "structure": "",
+          "raw_left": 342.5400085449219,
+          "raw_channel": 331.92999267578125,
+          "raw_right": 321.2099914550781,
+          "working_length": 331.92999267578125,
+          "initial_cumdist": 7158.910064697266,
+          "live_cumdist": 7158.910064697266,
+          "recalc_all_cumdist": 7273.1900634765625,
+          "recalc_xs_only": 7253.1900634765625,
+          "profile_cumdist": 7158.910064697266
+        },
+        {
+          "id": 39,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "7158.903",
+          "kind": "xs",
+          "structure": "",
+          "raw_left": 272.0400085449219,
+          "raw_channel": 290.55999755859375,
+          "raw_right": 340.82000732421875,
+          "working_length": 290.55999755859375,
+          "initial_cumdist": 6868.350067138672,
+          "live_cumdist": 6868.350067138672,
+          "recalc_all_cumdist": 6941.260070800781,
+          "recalc_xs_only": 6921.260070800781,
+          "profile_cumdist": 6868.350067138672
+        },
+        {
+          "id": 41,
+          "river": "White",
+          "reach": "Muncie",
+          "rs": "6868.344",
+          "kind": "xs",
+          "structure": "",
+          "raw_left": 247.24000549316406,
+          "raw_channel": 241.7899932861328,
+          "raw_right": 233.67999267578125,
+          "working_length": 241.7899932861328,
+          "initial_cumdist": 6626.560073852539,
+          "live_cumdist": 6626.560073852539,
+          "recalc_all_cumdist": 6630.7000732421875,
+          "recalc_xs_only": 6630.7000732421875,
+          "profile_cumdist": 6626.560073852539
+        }
+      ],
+      "profile_chainage_extent": [
+        0.0,
+        1157.0,
+        2235.0,
+        3805.0,
+        4185.0,
+        6092.97021484375
+      ]
+    }
+  ],
+  "geometry_text_selected_lines": [
+    {
+      "line": 54,
+      "text": "Type RM Length L Ch R = 1 ,15696.24,228.66,210.73,167.84"
+    },
+    {
+      "line": 95,
+      "text": "Type RM Length L Ch R = 1 ,15485.51,121.23,115.09,103.79"
+    },
+    {
+      "line": 128,
+      "text": "Type RM Length L Ch R = 1 ,15370.43,174.81,165.14,117.82"
+    },
+    {
+      "line": 161,
+      "text": "Type RM Length L Ch R = 1 ,15205.29,216.56,192.09,159.11"
+    },
+    {
+      "line": 188,
+      "text": "Type RM Length L Ch R = 1 ,15013.20,98.06,95.84,84"
+    },
+    {
+      "line": 211,
+      "text": "Type RM Length L Ch R = 1 ,14917.36,60.31,61.12,51.13"
+    },
+    {
+      "line": 233,
+      "text": "Type RM Length L Ch R = 1 ,14856.24,81.17,68.84,51.97"
+    },
+    {
+      "line": 255,
+      "text": "Type RM Length L Ch R = 1 ,14787.40,88.66,90.18,73.83"
+    },
+    {
+      "line": 277,
+      "text": "Type RM Length L Ch R = 1 ,14697.22,161.94,161.62,154.67"
+    },
+    {
+      "line": 298,
+      "text": "Type RM Length L Ch R = 1 ,14535.60,92.63,91.89,97.76"
+    },
+    {
+      "line": 321,
+      "text": "Type RM Length L Ch R = 1 ,14443.72,119.62,138.23,152.5"
+    },
+    {
+      "line": 345,
+      "text": "Type RM Length L Ch R = 1 ,14305.48,128.27,139.43,150.28"
+    },
+    {
+      "line": 365,
+      "text": "Type RM Length L Ch R = 1 ,14166.05,115.26,126.42,144.12"
+    },
+    {
+      "line": 385,
+      "text": "Type RM Length L Ch R = 1 ,14039.64,203.97,180.6,179.04"
+    },
+    {
+      "line": 407,
+      "text": "Type RM Length L Ch R = 1 ,13859.04,351.45,368.57,379.6"
+    },
+    {
+      "line": 461,
+      "text": "Type RM Length L Ch R = 1 ,13490.47,273.29,275.66,265.67"
+    },
+    {
+      "line": 510,
+      "text": "Type RM Length L Ch R = 1 ,13214.80,442.62,397.44,283.45"
+    },
+    {
+      "line": 553,
+      "text": "Type RM Length L Ch R = 6 ,13214   ,,,"
+    },
+    {
+      "line": 555,
+      "text": "Lateral Weir Pos= 0 "
+    },
+    {
+      "line": 556,
+      "text": "Lateral Weir End=                ,                ,        ,2D Interior Area"
+    },
+    {
+      "line": 557,
+      "text": "Lateral Weir Distance=3.6"
+    },
+    {
+      "line": 558,
+      "text": "Lateral Weir TW Multiple XS=0"
+    },
+    {
+      "line": 559,
+      "text": "Lateral Weir WD=20"
+    },
+    {
+      "line": 560,
+      "text": "Lateral Weir Coef=2"
+    },
+    {
+      "line": 563,
+      "text": "Lateral Weir WSCriteria=-1 "
+    },
+    {
+      "line": 564,
+      "text": "Lateral Weir Flap Gates= 0 "
+    },
+    {
+      "line": 565,
+      "text": "Lateral Weir Hagers EQN= 0 ,,,,,"
+    },
+    {
+      "line": 566,
+      "text": "Lateral Weir SS=0.05,0.05,"
+    },
+    {
+      "line": 567,
+      "text": "Lateral Weir Type= 0 "
+    },
+    {
+      "line": 568,
+      "text": "Lateral Weir Connection Pos and Dist= 0 ,"
+    },
+    {
+      "line": 569,
+      "text": "Lateral Weir SE= 2 "
+    },
+    {
+      "line": 571,
+      "text": "Lateral Weir Centerline= 17 "
+    },
+    {
+      "line": 581,
+      "text": "Lateral Weir HW RS User Defined=-1"
+    },
+    {
+      "line": 582,
+      "text": "Lateral Weir HW RS Station=13214.80,-3.6"
+    },
+    {
+      "line": 583,
+      "text": "Lateral Weir HW RS Station=12817.36,513.9532"
+    },
+    {
+      "line": 584,
+      "text": "Lateral Weir HW RS Station=12492.03,892.8837"
+    },
+    {
+      "line": 585,
+      "text": "Lateral Weir HW RS Station=12227.69,1168.858"
+    },
+    {
+      "line": 586,
+      "text": "Lateral Weir TW RS Station=5340,-66.23"
+    },
+    {
+      "line": 587,
+      "text": "Lateral Weir TW RS Station=5249,5.59"
+    },
+    {
+      "line": 588,
+      "text": "Lateral Weir TW RS Station=5160,77.32"
+    },
+    {
+      "line": 589,
+      "text": "Lateral Weir TW RS Station=5069,97.2"
+    },
+    {
+      "line": 590,
+      "text": "Lateral Weir TW RS Station=4979,189.35"
+    },
+    {
+      "line": 591,
+      "text": "Lateral Weir TW RS Station=4884,207.92"
+    },
+    {
+      "line": 592,
+      "text": "Lateral Weir TW RS Station=4781,262.16"
+    },
+    {
+      "line": 593,
+      "text": "Lateral Weir TW RS Station=4671,342.14"
+    },
+    {
+      "line": 594,
+      "text": "Lateral Weir TW RS Station=4552,370.63"
+    },
+    {
+      "line": 595,
+      "text": "Lateral Weir TW RS Station=4436,456.74"
+    },
+    {
+      "line": 596,
+      "text": "Lateral Weir TW RS Station=4322,479.1"
+    },
+    {
+      "line": 597,
+      "text": "Lateral Weir TW RS Station=4209,531.66"
+    },
+    {
+      "line": 598,
+      "text": "Lateral Weir TW RS Station=4094,582.25"
+    },
+    {
+      "line": 599,
+      "text": "Lateral Weir TW RS Station=3979,632.63"
+    },
+    {
+      "line": 600,
+      "text": "Lateral Weir TW RS Station=3866,714.84"
+    },
+    {
+      "line": 601,
+      "text": "Lateral Weir TW RS Station=3749,733.8"
+    },
+    {
+      "line": 602,
+      "text": "Lateral Weir TW RS Station=3609,784.8"
+    },
+    {
+      "line": 603,
+      "text": "Lateral Weir TW RS Station=3513,835.8"
+    },
+    {
+      "line": 604,
+      "text": "Lateral Weir TW RS Station=3407,886.52"
+    },
+    {
+      "line": 605,
+      "text": "Lateral Weir TW RS Station=3280,936.79"
+    },
+    {
+      "line": 606,
+      "text": "Lateral Weir TW RS Station=3160,986.81"
+    },
+    {
+      "line": 607,
+      "text": "Lateral Weir TW RS Station=3043,1036.83"
+    },
+    {
+      "line": 610,
+      "text": "Type RM Length L Ch R = 1 ,12817.36,343.35,325.34,250.83"
+    },
+    {
+      "line": 655,
+      "text": "Type RM Length L Ch R = 1 ,12492.03,270.81,264.34,256.95"
+    },
+    {
+      "line": 697,
+      "text": "Type RM Length L Ch R = 1 ,12227.69,104.93,110.54,95.45"
+    },
+    {
+      "line": 746,
+      "text": "Type RM Length L Ch R = 1 ,12117.14,147.32,159.03,183.09"
+    },
+    {
+      "line": 799,
+      "text": "Type RM Length L Ch R = 1 ,11958.11,175.84,176.41,178.44"
+    },
+    {
+      "line": 844,
+      "text": "Type RM Length L Ch R = 1 ,11781.69,119.63,153.04,215.27"
+    },
+    {
+      "line": 884,
+      "text": "Type RM Length L Ch R = 1 ,11628.65,219.39,250.76,309.78"
+    },
+    {
+      "line": 909,
+      "text": "Type RM Length L Ch R = 1 ,11377.89,152.66,189.73,237.81"
+    },
+    {
+      "line": 931,
+      "text": "Type RM Length L Ch R = 1 ,11188.16,496.17,515.41,544.9"
+    },
+    {
+      "line": 953,
+      "text": "Type RM Length L Ch R = 1 ,10672.75,467.18,456.48,444.03"
+    },
+    {
+      "line": 976,
+      "text": "Type RM Length L Ch R = 1 ,10216.27,391.95,361.9,337.21"
+    },
+    {
+      "line": 997,
+      "text": "Type RM Length L Ch R = 1 ,9854.381,375.05,305.53,220.39"
+    },
+    {
+      "line": 1020,
+      "text": "Type RM Length L Ch R = 1 ,9548.851,252.46,213.97,112.74"
+    },
+    {
+      "line": 1046,
+      "text": "Type RM Length L Ch R = 1 ,9334.877,264.54,253.68,234.38"
+    },
+    {
+      "line": 1073,
+      "text": "Type RM Length L Ch R = 1 ,9081.195,317.41,323.79,331.89"
+    },
+    {
+      "line": 1111,
+      "text": "Type RM Length L Ch R = 1 ,8757.405,316.98,323.07,315.99"
+    },
+    {
+      "line": 1156,
+      "text": "Type RM Length L Ch R = 1 ,8434.332,319.24,323.83,333.44"
+    },
+    {
+      "line": 1195,
+      "text": "Type RM Length L Ch R = 1 ,8110.505,248.55,246.02,287.99"
+    },
+    {
+      "line": 1234,
+      "text": "Type RM Length L Ch R = 1 ,7864.487,323.13,373.65,481.3"
+    },
+    {
+      "line": 1281,
+      "text": "Type RM Length L Ch R = 1 ,7490.833,342.54,331.93,321.21"
+    },
+    {
+      "line": 1322,
+      "text": "Type RM Length L Ch R = 6 ,7300    ,,,"
+    },
+    {
+      "line": 1324,
+      "text": "Lateral Weir Pos= 0 "
+    },
+    {
+      "line": 1325,
+      "text": "Lateral Weir End=                ,                ,        ,2D Interior Area"
+    },
+    {
+      "line": 1326,
+      "text": "Lateral Weir Distance=175"
+    },
+    {
+      "line": 1327,
+      "text": "Lateral Weir TW Multiple XS=0"
+    },
+    {
+      "line": 1328,
+      "text": "Lateral Weir WD=20"
+    },
+    {
+      "line": 1329,
+      "text": "Lateral Weir Coef=2"
+    },
+    {
+      "line": 1332,
+      "text": "Lateral Weir WSCriteria=-1 "
+    },
+    {
+      "line": 1333,
+      "text": "Lateral Weir Flap Gates= 0 "
+    },
+    {
+      "line": 1334,
+      "text": "Lateral Weir Hagers EQN= 0 ,,,,,"
+    },
+    {
+      "line": 1335,
+      "text": "Lateral Weir SS=0.05,0.05,"
+    },
+    {
+      "line": 1336,
+      "text": "Lateral Weir Type= 0 "
+    },
+    {
+      "line": 1337,
+      "text": "Lateral Weir Connection Pos and Dist= 0 ,"
+    },
+    {
+      "line": 1338,
+      "text": "Lateral Weir SE= 6 "
+    },
+    {
+      "line": 1341,
+      "text": "Lateral Weir Centerline= 53 "
+    },
+    {
+      "line": 1369,
+      "text": "Lateral Weir HW RS User Defined=-1"
+    },
+    {
+      "line": 1370,
+      "text": "Lateral Weir HW RS Station=7490.833,-175"
+    },
+    {
+      "line": 1371,
+      "text": "Lateral Weir HW RS Station=7158.903,182.9282"
+    },
+    {
+      "line": 1372,
+      "text": "Lateral Weir HW RS Station=6868.344,451.8975"
+    },
+    {
+      "line": 1373,
+      "text": "Lateral Weir HW RS Station=6626.553,702.3194"
+    },
+    {
+      "line": 1374,
+      "text": "Lateral Weir HW RS Station=6295.048,1047.591"
+    },
+    {
+      "line": 1375,
+      "text": "Lateral Weir HW RS Station=5925.654,1403.16"
+    },
+    {
+      "line": 1376,
+      "text": "Lateral Weir HW RS Station=5688.906,1623.982"
+    },
+    {
+      "line": 1377,
+      "text": "Lateral Weir HW RS Station=5382.517,1897.006"
+    },
+    {
+      "line": 1378,
+      "text": "Lateral Weir HW RS Station=5124.979,2135.592"
+    },
+    {
+      "line": 1379,
+      "text": "Lateral Weir HW RS Station=4850.811,2396.466"
+    },
+    {
+      "line": 1380,
+      "text": "Lateral Weir HW RS Station=4570.628,2660.945"
+    },
+    {
+      "line": 1381,
+      "text": "Lateral Weir HW RS Station=4185.719,2989.674"
+    },
+    {
+      "line": 1382,
+      "text": "Lateral Weir HW RS Station=3952.406,3195.573"
+    },
+    {
+      "line": 1383,
+      "text": "Lateral Weir HW RS Station=3690.809,3398.324"
+    },
+    {
+      "line": 1384,
+      "text": "Lateral Weir HW RS Station=3268.276,3750.063"
+    },
+    {
+      "line": 1385,
+      "text": "Lateral Weir HW RS Station=2920.440,4089.219"
+    },
+    {
+      "line": 1386,
+      "text": "Lateral Weir HW RS Station=2582.948,4411.067"
+    },
+    {
+      "line": 1387,
+      "text": "Lateral Weir HW RS Station=2290.221,4712.352"
+    },
+    {
+      "line": 1388,
+      "text": "Lateral Weir HW RS Station=1980.776,4996.004"
+    },
+    {
+      "line": 1389,
+      "text": "Lateral Weir HW RS Station=1743.103,5408.708"
+    },
+    {
+      "line": 1390,
+      "text": "Lateral Weir HW RS Station=1469.294,5961.809"
+    },
+    {
+      "line": 1391,
+      "text": "Lateral Weir HW RS Station=1174.213,6136.081"
+    },
+    {
+      "line": 1392,
+      "text": "Lateral Weir TW RS Station=878,-25"
+    },
+    {
+      "line": 1393,
+      "text": "Lateral Weir TW RS Station=822,47.37"
+    },
+    {
+      "line": 1394,
+      "text": "Lateral Weir TW RS Station=766,118.41"
+    },
+    {
+      "line": 1395,
+      "text": "Lateral Weir TW RS Station=711,189.42"
+    },
+    {
+      "line": 1396,
+      "text": "Lateral Weir TW RS Station=657,211.04"
+    },
+    {
+      "line": 1397,
+      "text": "Lateral Weir TW RS Station=603,295.94"
+    },
+    {
+      "line": 1398,
+      "text": "Lateral Weir TW RS Station=549,366.95"
+    },
+    {
+      "line": 1399,
+      "text": "Lateral Weir TW RS Station=496,438.08"
+    },
+    {
+      "line": 1400,
+      "text": "Lateral Weir TW RS Station=494,518.01"
+    },
+    {
+      "line": 1401,
+      "text": "Lateral Weir TW RS Station=443,551.91"
+    },
+    {
+      "line": 1402,
+      "text": "Lateral Weir TW RS Station=393,622.77"
+    },
+    {
+      "line": 1403,
+      "text": "Lateral Weir TW RS Station=344,693.79"
+    },
+    {
+      "line": 1404,
+      "text": "Lateral Weir TW RS Station=297,764.81"
+    },
+    {
+      "line": 1405,
+      "text": "Lateral Weir TW RS Station=251,835.96"
+    },
+    {
+      "line": 1406,
+      "text": "Lateral Weir TW RS Station=206,908.1"
+    },
+    {
+      "line": 1407,
+      "text": "Lateral Weir TW RS Station=204,987.16"
+    },
+    {
+      "line": 1408,
+      "text": "Lateral Weir TW RS Station=162,1017.79"
+    },
+    {
+      "line": 1409,
+      "text": "Lateral Weir TW RS Station=160,1100.74"
+    },
+    {
+      "line": 1410,
+      "text": "Lateral Weir TW RS Station=120,1130.05"
+    },
+    {
+      "line": 1411,
+      "text": "Lateral Weir TW RS Station=118,1207.74"
+    },
+    {
+      "line": 1412,
+      "text": "Lateral Weir TW RS Station=116,1259.67"
+    },
+    {
+      "line": 1413,
+      "text": "Lateral Weir TW RS Station=114,1311.81"
+    },
+    {
+      "line": 1414,
+      "text": "Lateral Weir TW RS Station=79,1329.57"
+    },
+    {
+      "line": 1415,
+      "text": "Lateral Weir TW RS Station=77,1417.48"
+    },
+    {
+      "line": 1416,
+      "text": "Lateral Weir TW RS Station=75,1469.72"
+    },
+    {
+      "line": 1417,
+      "text": "Lateral Weir TW RS Station=45,1488.06"
+    },
+    {
+      "line": 1418,
+      "text": "Lateral Weir TW RS Station=43,1572.61"
+    },
+    {
+      "line": 1419,
+      "text": "Lateral Weir TW RS Station=41,1622.99"
+    },
+    {
+      "line": 1420,
+      "text": "Lateral Weir TW RS Station=39,1673.38"
+    },
+    {
+      "line": 1421,
+      "text": "Lateral Weir TW RS Station=37,1723.77"
+    },
+    {
+      "line": 1422,
+      "text": "Lateral Weir TW RS Station=35,1774.16"
+    },
+    {
+      "line": 1423,
+      "text": "Lateral Weir TW RS Station=33,1824.55"
+    },
+    {
+      "line": 1424,
+      "text": "Lateral Weir TW RS Station=11,1841.62"
+    },
+    {
+      "line": 1425,
+      "text": "Lateral Weir TW RS Station=9,1925.32"
+    },
+    {
+      "line": 1426,
+      "text": "Lateral Weir TW RS Station=7,1975.63"
+    },
+    {
+      "line": 1427,
+      "text": "Lateral Weir TW RS Station=5,2025.74"
+    },
+    {
+      "line": 1428,
+      "text": "Lateral Weir TW RS Station=1,2075.84"
+    },
+    {
+      "line": 1429,
+      "text": "Lateral Weir TW RS Station=2,2158.13"
+    },
+    {
+      "line": 1430,
+      "text": "Lateral Weir TW RS Station=25,2176.42"
+    },
+    {
+      "line": 1431,
+      "text": "Lateral Weir TW RS Station=23,2226.67"
+    },
+    {
+      "line": 1432,
+      "text": "Lateral Weir TW RS Station=21,2276.79"
+    },
+    {
+      "line": 1433,
+      "text": "Lateral Weir TW RS Station=19,2327.26"
+    },
+    {
+      "line": 1434,
+      "text": "Lateral Weir TW RS Station=17,2378.22"
+    },
+    {
+      "line": 1435,
+      "text": "Lateral Weir TW RS Station=15,2429.05"
+    },
+    {
+      "line": 1436,
+      "text": "Lateral Weir TW RS Station=12,2513.34"
+    },
+    {
+      "line": 1437,
+      "text": "Lateral Weir TW RS Station=53,2530.65"
+    },
+    {
+      "line": 1438,
+      "text": "Lateral Weir TW RS Station=51,2583.03"
+    },
+    {
+      "line": 1439,
+      "text": "Lateral Weir TW RS Station=47,2635.41"
+    },
+    {
+      "line": 1440,
+      "text": "Lateral Weir TW RS Station=48,2713.38"
+    },
+    {
+      "line": 1441,
+      "text": "Lateral Weir TW RS Station=85,2740.17"
+    },
+    {
+      "line": 1442,
+      "text": "Lateral Weir TW RS Station=81,2792.55"
+    },
+    {
+      "line": 1443,
+      "text": "Lateral Weir TW RS Station=82,2873.04"
+    },
+    {
+      "line": 1444,
+      "text": "Lateral Weir TW RS Station=122,2897.31"
+    },
+    {
+      "line": 1445,
+      "text": "Lateral Weir TW RS Station=123,2987.96"
+    },
+    {
+      "line": 1446,
+      "text": "Lateral Weir TW RS Station=164,3060.07"
+    },
+    {
+      "line": 1447,
+      "text": "Lateral Weir TW RS Station=208,3131.95"
+    },
+    {
+      "line": 1448,
+      "text": "Lateral Weir TW RS Station=253,3216.15"
+    },
+    {
+      "line": 1449,
+      "text": "Lateral Weir TW RS Station=298,3268.26"
+    },
+    {
+      "line": 1450,
+      "text": "Lateral Weir TW RS Station=346,3286.81"
+    },
+    {
+      "line": 1451,
+      "text": "Lateral Weir TW RS Station=394,3369.89"
+    },
+    {
+      "line": 1452,
+      "text": "Lateral Weir TW RS Station=445,3419.91"
+    },
+    {
+      "line": 1453,
+      "text": "Lateral Weir TW RS Station=498,3469.95"
+    },
+    {
+      "line": 1454,
+      "text": "Lateral Weir TW RS Station=550,3519.99"
+    },
+    {
+      "line": 1455,
+      "text": "Lateral Weir TW RS Station=605,3600.04"
+    },
+    {
+      "line": 1456,
+      "text": "Lateral Weir TW RS Station=659,3622.43"
+    },
+    {
+      "line": 1457,
+      "text": "Lateral Weir TW RS Station=713,3674.74"
+    },
+    {
+      "line": 1458,
+      "text": "Lateral Weir TW RS Station=767,3760.07"
+    },
+    {
+      "line": 1459,
+      "text": "Lateral Weir TW RS Station=824,3780.44"
+    },
+    {
+      "line": 1460,
+      "text": "Lateral Weir TW RS Station=879,3872.79"
+    },
+    {
+      "line": 1461,
+      "text": "Lateral Weir TW RS Station=939,3890.74"
+    },
+    {
+      "line": 1462,
+      "text": "Lateral Weir TW RS Station=997,3945.27"
+    },
+    {
+      "line": 1463,
+      "text": "Lateral Weir TW RS Station=1055,4023.72"
+    },
+    {
+      "line": 1464,
+      "text": "Lateral Weir TW RS Station=1117,4056.32"
+    },
+    {
+      "line": 1465,
+      "text": "Lateral Weir TW RS Station=1178,4136.24"
+    },
+    {
+      "line": 1466,
+      "text": "Lateral Weir TW RS Station=1240,4166.66"
+    },
+    {
+      "line": 1467,
+      "text": "Lateral Weir TW RS Station=1301,4249.49"
+    },
+    {
+      "line": 1468,
+      "text": "Lateral Weir TW RS Station=1363,4276.7"
+    },
+    {
+      "line": 1469,
+      "text": "Lateral Weir TW RS Station=1425,4362.21"
+    },
+    {
+      "line": 1470,
+      "text": "Lateral Weir TW RS Station=1488,4387.35"
+    },
+    {
+      "line": 1471,
+      "text": "Lateral Weir TW RS Station=1552,4474.34"
+    },
+    {
+      "line": 1472,
+      "text": "Lateral Weir TW RS Station=1615,4498.84"
+    },
+    {
+      "line": 1473,
+      "text": "Lateral Weir TW RS Station=1679,4586.13"
+    },
+    {
+      "line": 1474,
+      "text": "Lateral Weir TW RS Station=1744,4613.28"
+    },
+    {
+      "line": 1475,
+      "text": "Lateral Weir TW RS Station=1811,4693.6"
+    },
+    {
+      "line": 1476,
+      "text": "Lateral Weir TW RS Station=1879,4765.25"
+    },
+    {
+      "line": 1477,
+      "text": "Lateral Weir TW RS Station=1957,4836.9"
+    },
+    {
+      "line": 1478,
+      "text": "Lateral Weir TW RS Station=2036,4859.58"
+    },
+    {
+      "line": 1479,
+      "text": "Lateral Weir TW RS Station=2116,4943.92"
+    },
+    {
+      "line": 1480,
+      "text": "Lateral Weir TW RS Station=2199,5015.06"
+    },
+    {
+      "line": 1481,
+      "text": "Lateral Weir TW RS Station=2285,5086.21"
+    },
+    {
+      "line": 1482,
+      "text": "Lateral Weir TW RS Station=2370,5157.35"
+    },
+    {
+      "line": 1483,
+      "text": "Lateral Weir TW RS Station=2458,5178.89"
+    },
+    {
+      "line": 1484,
+      "text": "Lateral Weir TW RS Station=2548,5266.15"
+    },
+    {
+      "line": 1485,
+      "text": "Lateral Weir TW RS Station=2643,5294.21"
+    },
+    {
+      "line": 1486,
+      "text": "Lateral Weir TW RS Station=2733,5381.08"
+    },
+    {
+      "line": 1487,
+      "text": "Lateral Weir TW RS Station=2834,5402.02"
+    },
+    {
+      "line": 1488,
+      "text": "Lateral Weir TW RS Station=2936,5455.5"
+    },
+    {
+      "line": 1489,
+      "text": "Lateral Weir TW RS Station=3044,5536.14"
+    },
+    {
+      "line": 1490,
+      "text": "Lateral Weir TW RS Station=3162,5562.45"
+    },
+    {
+      "line": 1491,
+      "text": "Lateral Weir TW RS Station=3281,5652.44"
+    },
+    {
+      "line": 1492,
+      "text": "Lateral Weir TW RS Station=3409,5669.41"
+    },
+    {
+      "line": 1493,
+      "text": "Lateral Weir TW RS Station=3515,5722.89"
+    },
+    {
+      "line": 1494,
+      "text": "Lateral Weir TW RS Station=3610,5807.51"
+    },
+    {
+      "line": 1495,
+      "text": "Lateral Weir TW RS Station=3751,5829.71"
+    },
+    {
+      "line": 1496,
+      "text": "Lateral Weir TW RS Station=3868,5882.06"
+    },
+    {
+      "line": 1497,
+      "text": "Lateral Weir TW RS Station=3980,5968.91"
+    },
+    {
+      "line": 1498,
+      "text": "Lateral Weir TW RS Station=4095,5985.51"
+    },
+    {
+      "line": 1499,
+      "text": "Lateral Weir TW RS Station=4210,6035.51"
+    },
+    {
+      "line": 1500,
+      "text": "Lateral Weir TW RS Station=4323,6085.51"
+    },
+    {
+      "line": 1501,
+      "text": "Lateral Weir TW RS Station=4437,6135.51"
+    },
+    {
+      "line": 1504,
+      "text": "Type RM Length L Ch R = 1 ,7158.903,272.04,290.56,340.82"
+    },
+    {
+      "line": 1537,
+      "text": "Type RM Length L Ch R = 1 ,6868.344,247.24,241.79,233.68"
+    },
+    {
+      "line": 1572,
+      "text": "Type RM Length L Ch R = 1 ,6626.553,336.05,331.51,316.07"
+    },
+    {
+      "line": 1605,
+      "text": "Type RM Length L Ch R = 1 ,6295.048,359.73,369.39,392.65"
+    },
+    {
+      "line": 1639,
+      "text": "Type RM Length L Ch R = 1 ,5925.654,224.76,236.75,256.6"
+    },
+    {
+      "line": 1673,
+      "text": "Type RM Length L Ch R = 1 ,5688.906,287.9,306.39,332.54"
+    },
+    {
+      "line": 1712,
+      "text": "Type RM Length L Ch R = 1 ,5382.517,245.29,257.54,265.05"
+    },
+    {
+      "line": 1741,
+      "text": "Type RM Length L Ch R = 1 ,5124.979,267.86,274.17,284.28"
+    },
+    {
+      "line": 1770,
+      "text": "Type RM Length L Ch R = 1 ,4850.811,272.16,280.18,286.78"
+    },
+    {
+      "line": 1798,
+      "text": "Type RM Length L Ch R = 1 ,4570.628,348.74,384.91,407.06"
+    },
+    {
+      "line": 1829,
+      "text": "Type RM Length L Ch R = 1 ,4185.719,215.73,233.31,247.75"
+    },
+    {
+      "line": 1858,
+      "text": "Type RM Length L Ch R = 1 ,3952.406,218.17,261.6,298.8"
+    },
+    {
+      "line": 1900,
+      "text": "Type RM Length L Ch R = 1 ,3690.809,374.32,422.53,466.24"
+    },
+    {
+      "line": 1923,
+      "text": "Type RM Length L Ch R = 1 ,3268.276,341.55,347.84,356.57"
+    },
+    {
+      "line": 1946,
+      "text": "Type RM Length L Ch R = 1 ,2920.440,326.36,337.49,345.59"
+    },
+    {
+      "line": 1969,
+      "text": "Type RM Length L Ch R = 1 ,2582.948,297.38,292.73,287.28"
+    },
+    {
+      "line": 1990,
+      "text": "Type RM Length L Ch R = 1 ,2290.221,293.25,309.45,326.22"
+    },
+    {
+      "line": 2013,
+      "text": "Type RM Length L Ch R = 1 ,1980.776,305.01,237.67,171.91"
+    },
+    {
+      "line": 2034,
+      "text": "Type RM Length L Ch R = 1 ,1743.103,338.45,273.81,217.46"
+    },
+    {
+      "line": 2059,
+      "text": "Type RM Length L Ch R = 1 ,1469.294,326.76,295.08,293.53"
+    },
+    {
+      "line": 2085,
+      "text": "Type RM Length L Ch R = 1 ,1174.213,359.34,308.67,300.36"
+    },
+    {
+      "line": 2116,
+      "text": "Type RM Length L Ch R = 1 ,865.5413,323.21,295.42,289.85"
+    },
+    {
+      "line": 2154,
+      "text": "Type RM Length L Ch R = 1 ,570.1187,383.75,332.47,321.89"
+    },
+    {
+      "line": 2200,
+      "text": "Type RM Length L Ch R = 1 ,237.6455,67.07,237.65,257.89"
+    }
+  ],
+  "merge_one_reach_extent": [
+    0.0,
+    15458.599994659424
+  ],
+  "live_panels": [
+    {
+      "panel": 1,
+      "start_station": 0.0,
+      "end_station": 6500.0,
+      "start_elevation": 911.6199951171875,
+      "end_elevation": 956.6199951171875,
+      "panel_x": 0.0,
+      "panel_y": 0.0,
+      "h_scale": 500.0,
+      "v_scale": 5.0
+    },
+    {
+      "panel": 2,
+      "start_station": 6500.0,
+      "end_station": 13000.0,
+      "start_elevation": 911.6199951171875,
+      "end_elevation": 956.6199951171875,
+      "panel_x": 0.0,
+      "panel_y": 0.0,
+      "h_scale": 500.0,
+      "v_scale": 5.0
+    },
+    {
+      "panel": 3,
+      "start_station": 13000.0,
+      "end_station": 19500.0,
+      "start_elevation": 911.6199951171875,
+      "end_elevation": 956.6199951171875,
+      "panel_x": 0.0,
+      "panel_y": 0.0,
+      "h_scale": 500.0,
+      "v_scale": 5.0
+    }
+  ],
+  "live_header": {
+    "community": "MUNCIE, CITY OF",
+    "county": "DELAWARE COUNTY",
+    "state": "IN",
+    "stream_name": "WHITE MUNCIE",
+    "stream_distance_label": "",
+    "unit": "Feet",
+    "vertical_datum": "NAVD88",
+    "start_panel_no": 1,
+    "h_scale": 500.0,
+    "v_scale": 5.0,
+    "page_size": "11x17",
+    "table_name": "Table 24",
+    "table_title": "FLOODWAY DATA",
+    "revision_start_station": null,
+    "revision_end_station": null
+  }
+}

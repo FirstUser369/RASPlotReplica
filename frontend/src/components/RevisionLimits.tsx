@@ -5,12 +5,13 @@ import { displayRevisionBoundary as display, prepareRevisionSubmission, revision
 
 type Props = {
   sessionId: string;
+  crossSections?: Array<{xs_id?: string; river?: string; reach?: string; rs?: string; cumdist?: number}>;
   refreshKey?: number;
   onChange?: (limits: RevisionLimitsResponse) => void;
   onCommit?: () => void;
 };
 
-export default function RevisionLimits({ sessionId, refreshKey = 0, onChange, onCommit }: Props) {
+export default function RevisionLimits({ sessionId, crossSections = [], refreshKey = 0, onChange, onCommit }: Props) {
   const [limits, setLimits] = useState<RevisionLimitsResponse | null>(null);
   const [startInput, setStartInput] = useState("");
   const [endInput, setEndInput] = useState("");
@@ -121,11 +122,33 @@ export default function RevisionLimits({ sessionId, refreshKey = 0, onChange, on
       </div>
       {expanded && <div className="revision-limits__editor">
         <label>
-          <span>Start Station (ft)</span>
+          <span>Downstream cross section (optional)</span>
+          <select value="" onChange={(event) => {
+            const row = crossSections.find(item => item.xs_id === event.target.value);
+            if (row && Number.isFinite(Number(row.cumdist))) { setStartInput(String(row.cumdist)); setStartEdited(true); }
+          }} disabled={busy}>
+            <option value="">Choose by river / reach / station…</option>
+            {[...crossSections].sort((a,b) => Number(a.cumdist)-Number(b.cumdist)).map((row, index) =>
+              <option key={row.xs_id ?? index} value={row.xs_id}>{row.river} / {row.reach} / RS {row.rs} — {display(Number(row.cumdist))} ft</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Upstream cross section (optional)</span>
+          <select value="" onChange={(event) => {
+            const row = crossSections.find(item => item.xs_id === event.target.value);
+            if (row && Number.isFinite(Number(row.cumdist))) { setEndInput(String(row.cumdist)); setEndEdited(true); }
+          }} disabled={busy}>
+            <option value="">Choose by river / reach / station…</option>
+            {[...crossSections].sort((a,b) => Number(a.cumdist)-Number(b.cumdist)).map((row, index) =>
+              <option key={row.xs_id ?? index} value={row.xs_id}>{row.river} / {row.reach} / RS {row.rs} — {display(Number(row.cumdist))} ft</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Downstream cumulative distance (ft)</span>
           <input type="number" value={startInput} onChange={(event) => { setStartInput(event.target.value); setStartEdited(true); }} disabled={busy} />
         </label>
         <label>
-          <span>End Station (ft)</span>
+          <span>Upstream cumulative distance (ft)</span>
           <input type="number" value={endInput} onChange={(event) => { setEndInput(event.target.value); setEndEdited(true); }} disabled={busy} />
         </label>
         <button type="button" onClick={apply} disabled={busy || !limits}>Apply</button>

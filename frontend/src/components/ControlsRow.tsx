@@ -9,8 +9,6 @@ type Props = {
   onOpenProfileMapping: () => void;
   onOpenEditProfileTable: () => void;
   onOpenPanelSetup: () => void;
-  onFixDrawdowns: () => void;
-  onAutoLetter: () => void;
   onRecalcCumdist: () => void;
   onNodeNames: (on: boolean) => void;
   useNodeNames: boolean;
@@ -42,8 +40,6 @@ export default function ControlsRow({
   onOpenProfileMapping,
   onOpenEditProfileTable,
   onOpenPanelSetup,
-  onFixDrawdowns,
-  onAutoLetter,
   onRecalcCumdist,
   onNodeNames,
   useNodeNames,
@@ -127,8 +123,6 @@ export default function ControlsRow({
         <button type="button" className="tool" onClick={onOpenProfileMapping} title="Review and assign FEMA frequency/use for each extracted profile">Profile Mapping</button>
         <button type="button" className="tool" onClick={onOpenEditProfileTable} title="Open a full-width engineering profile table">Edit Profile Table</button>
         <button type="button" className="tool" onClick={onOpenPanelSetup} title="Open the current panel layout workspace">Panel Setup</button>
-        <button type="button" className="tool" onClick={onAutoLetter} title="Review options before automatically lettering cross sections">Auto Letters</button>
-        <button type="button" className="tool" onClick={onFixDrawdowns} title="Review options before adjusting working WSEL drawdowns">Fix Drawdowns</button>
         <button type="button" className="tool" onClick={onRecalcCumdist} title="Recalculate CUMDIST">CUMDIST</button>
         <label className="tool-check" title="Import HEC-RAS node names as letters/text">
           <input type="checkbox" checked={useNodeNames} onChange={(e) => onNodeNames(e.target.checked)} />

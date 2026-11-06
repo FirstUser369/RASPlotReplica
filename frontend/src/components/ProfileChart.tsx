@@ -208,7 +208,7 @@ export default function ProfileChart({
       autorange: false,
     },
     yaxis: {
-      title: `Elevation (${profile.vertical_datum || "UNKNOWN"}, ${profile.source_units === "US Customary" || profile.source_units === "INTERNAL_US_CUSTOMARY" ? "ft" : "units UNKNOWN"})`,
+      title: `Elevation (${profile.vertical_datum || "UNKNOWN"}, ${profile.working_units === "INTERNAL_US_CUSTOMARY" || profile.source_units === "US Customary" || profile.source_units === "INTERNAL_US_CUSTOMARY" ? "working ft" : "units UNKNOWN"})`,
       gridcolor: "#eee",
       ...(hasElevationRange ? { range: [startElevation, endElevation], autorange: false } : {}),
     },

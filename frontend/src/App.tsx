@@ -1,8 +1,7 @@
 import { advanceContext, assertContext, contextModel, contextVersion, setContextModel, setContextReach, StaleResponse } from "./api/context";
 import { finiteElevation } from "./engineering";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import Header from "./components/Header";
-import ProfileChart from "./components/ProfileChart";
 import ProfileTable from "./components/ProfileTable";
 import MapView from "./components/MapView";
 import ControlsRow from "./components/ControlsRow";
@@ -17,10 +16,12 @@ import ConfirmationDialog from "./components/ConfirmationDialog";
 import EngineeringStatusPanel from "./components/EngineeringStatusPanel";
 import RevisionLimits from "./components/RevisionLimits";
 import ModelWorkspace from "./components/ModelWorkspace";
-import { api, type FloodingSourceResponse, type GetProfileResponse, type PanelInput, type ProfileMeta, type RevisionLimitsResponse } from "./api/client";
+import { api, type FloodingSourceResponse, type GetProfileResponse, type PanelInput, type ProfileMeta, type RevisionLimitsResponse, type StructurePreflightResponse } from "./api/client";
 import type {ModelInventory} from "./modelWorkspace";
 import {crossSectionByIdentity, workingRowsByIdentity} from "./xsIdentity";
 import {activeReachContext, engineeringStateFromDb, mergeWorkingRows, profileTableVisible} from "./workflowState";
+
+const ProfileChart = lazy(() => import("./components/ProfileChart"));
 
 export type Session = {
   session_id: string;
@@ -96,6 +97,8 @@ export default function App() {
   const [stationingDirty, setStationingDirty] = useState(false);
   const [stationingNotice, setStationingNotice] = useState<string | null>(null);
   const [panelsStale, setPanelsStale] = useState(false);
+  const [panelStaleReasons, setPanelStaleReasons] = useState<Array<{category: string; affected_panels: string[]; detail: string;
+    changes?: Array<{identity: string; field: string; previous: unknown; current: unknown}>; additional_change_count?: number}>>([]);
   const [savedPanels, setSavedPanels] = useState<PanelInput[]>([]);
   const [activeFloodingSourceName, setActiveFloodingSourceName] = useState<string | null>(null);
   const [projectPath, setProjectPath] = useState<string | null>(null);
@@ -105,12 +108,25 @@ export default function App() {
   const [confirmation, setConfirmation] = useState<null | {title: string; message: string; confirmLabel: string}>(null);
   const confirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const [supportPaneOpen, setSupportPaneOpen] = useState(true);
+  const [structurePreflight, setStructurePreflight] = useState<StructurePreflightResponse | null>(null);
 
   useEffect(() => {
     api.getSettings().then((s) => {
       if (s.last_plan_path) setDefaultPath(s.last_plan_path);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!session || workspaceMode !== "engineering" || stationingDirty) {
+      setStructurePreflight(null);
+      return () => { cancelled = true; };
+    }
+    api.getStructurePreflight(session.session_id)
+      .then((result) => { if (!cancelled) setStructurePreflight(result); })
+      .catch(() => { if (!cancelled) setStructurePreflight(null); });
+    return () => { cancelled = true; };
+  }, [session?.session_id, workspaceMode, stationingDirty, revisionLimits?.revision_start_station, revisionLimits?.revision_end_station, profileData]);
 
   useEffect(() => {
     const changed = () => { if (session) setUnsavedProject(true); };
@@ -179,6 +195,7 @@ export default function App() {
       setLandmarks(db.landmarks || []);
       setProfileMeta((db.profiles as ProfileMeta[]) || []);
       setSavedPanels((db.panels as PanelInput[]) || []);
+      setPanelStaleReasons(db.panel_stale_reasons ?? []);
       return db;
     } catch (e) {
       throw e;
@@ -297,7 +314,7 @@ export default function App() {
       setMergeOrder(s.reaches.map((_, i) => i)); setJunctions(s.reaches.slice(1).map(() => 0));
       setRevisionLimits(null); setProfileTableOpen(false); setPanelSetupOpen(false);
       setExportOpen(false); setProfileMappingOpen(false);
-      setStationingDirty(false); setStationingNotice(null); setPanelsStale(Boolean(db.panels_stale)); setActiveFloodingSourceName(null);
+      setStationingDirty(false); setStationingNotice(null); setPanelsStale(Boolean(db.panels_stale)); setPanelStaleReasons(db.panel_stale_reasons ?? []); setActiveFloodingSourceName(null);
       setRevisionRefreshKey((value) => value + 1);
       setProjectPath(null); setUnsavedProject(false);
       if (previousSession) void api.closeSession(previousSession.session_id).catch(() => {});
@@ -367,7 +384,7 @@ export default function App() {
       setSelectedXsId(null); setUseNodeNames(Boolean(db.use_node_names)); setElevationCustomized(false);
       setRevisionLimits(null); setProfileTableOpen(false); setPanelSetupOpen(false); setExportOpen(false); setProfileMappingOpen(false);
       setStationingDirty(Boolean(db.stationing_dirty)); setStationingNotice(db.stationing_dirty ? "Recalculate CUMDIST before preview or export." : null);
-      setPanelsStale(Boolean(db.panels_stale)); setActiveFloodingSourceName(db.flooding_source?.display_name ?? null);
+      setPanelsStale(Boolean(db.panels_stale)); setPanelStaleReasons(db.panel_stale_reasons ?? []); setActiveFloodingSourceName(db.flooding_source?.display_name ?? null);
       setProjectPath(s.project_path); setUnsavedProject(false); setRevisionRefreshKey(value => value + 1);
       if (s.warnings?.length) setError(s.warnings.join(" "));
       if (previousSession) void api.closeSession(previousSession.session_id).catch(() => {});
@@ -811,8 +828,6 @@ export default function App() {
             onOpenProfileMapping={() => setProfileMappingOpen(true)}
             onOpenEditProfileTable={() => setProfileTableOpen(true)}
             onOpenPanelSetup={() => setPanelSetupOpen(true)}
-            onFixDrawdowns={() => setEngineeringAction("fix-drawdowns")}
-            onAutoLetter={() => setEngineeringAction("auto-letters")}
             onRecalcCumdist={onRecalcCumdist}
             onNodeNames={onNodeNames}
             useNodeNames={useNodeNames}
@@ -834,20 +849,27 @@ export default function App() {
           />
           <RevisionLimits key={`revision:${session.session_id}:${reachIdx}`}
             sessionId={session.session_id}
+            crossSections={workingTableData?.cross_sections ?? profileData?.cross_sections ?? []}
             refreshKey={revisionRefreshKey}
             onChange={setRevisionLimits}
             onCommit={() => { void refreshDbMeta(session.session_id).then((db) => setPanelsStale(Boolean(db.panels_stale))).catch(() => {}); }}
           />
           <EngineeringStatusPanel source={defaultPath} profiles={selectedProfiles} datum={profileData?.vertical_datum}
-            stationingDirty={stationingDirty} panelsStale={panelsStale} revision={revisionLimits} unsaved={unsavedProject} error={error} />
+            stationingDirty={stationingDirty} panelsStale={panelsStale} revision={revisionLimits} unsaved={unsavedProject} error={error}
+            panelStaleReasons={panelStaleReasons}
+            onOpenPanelSetup={() => setPanelSetupOpen(true)}
+            structurePreflight={structurePreflight} onOpenStructure={(identity) => {
+              const structure = profileData?.structures?.find((item: any) => item.structure_id === identity || item.identity === identity);
+              setSelectedXsId(structure?.row_identity ?? identity); setProfileTableOpen(true);
+            }} />
           <div className={`main ${supportPaneOpen ? "" : "main--chart-only"}`}>
             <div className="main__chart" aria-label="Flood profile drawing workspace">
-              <div className="workspace-heading"><div><span className="eyebrow">Flood profile workspace</span><strong>{activeFloodingSourceName ?? activeReachContext(activeFloodingSourceName, session, reachIdx).label}</strong></div>
+              <div className="workspace-heading"><div><span className="eyebrow">Flood profile workspace</span><strong>{activeFloodingSourceName ?? activeReachContext(activeFloodingSourceName, session, reachIdx).label}</strong>{!activeFloodingSourceName && session.reaches.length === 1 && <small className="auto-source-message">Single flooding source selected automatically</small>}</div>
                 <button type="button" className="button button--secondary" onClick={() => setSupportPaneOpen(value => !value)} aria-expanded={supportPaneOpen}>{supportPaneOpen ? "Hide supporting panes" : "Show supporting panes"}</button></div>
               {stationingDirty ? (
                 <div className="stationing-blocked" role="status"><strong>Profile preview paused</strong><p>{stationingNotice}</p><button type="button" onClick={onRecalcCumdist}>Recalculate CUMDIST</button></div>
               ) : profileData && (
-                <ProfileChart
+                <Suspense fallback={<div className="chart-loading" role="status">Loading engineering profile…</div>}><ProfileChart
                   profile={profileData}
                   selectedXsId={selectedXsId}
                   onSelectXs={setSelectedXsId}
@@ -861,7 +883,7 @@ export default function App() {
                     revisionEnd={revisionLimits?.revision_end_station ?? null}
                     panels={savedPanels}
                     panelsStale={panelsStale}
-                />
+                /></Suspense>
               )}
               {!stationingDirty && panelsStale && <div className="panel-review-notice">Saved panels require review after the stationing change.</div>}
               <div className="chart-hint">Shift+click a point to add a landmark</div>
@@ -1013,7 +1035,7 @@ export default function App() {
             revisionStart={revisionLimits?.revision_start_station ?? null}
             revisionEnd={revisionLimits?.revision_end_station ?? null}
             onClose={() => setPanelSetupOpen(false)}
-            onApplied={(panels) => { setSavedPanels(panels); setPanelsStale(false); }}
+            onApplied={(panels) => { setSavedPanels(panels); setPanelsStale(false); setPanelStaleReasons([]); }}
             stationingDirty={stationingDirty}
           />
           <ExportDialog

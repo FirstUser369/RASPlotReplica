@@ -4,7 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.app.core.hdf_reader import CrossSection, Plan, ProfileResult, ReachGeometry
+from backend.app.core.hdf_reader import CrossSection, Plan, ProfileResult, ReachGeometry, Structure
 from backend.app.core.model_topology import ModelContext, build_topology
 from backend.app.core.project_file import LEGACY_REVIEW_CONTRACT_VERSION
 from backend.app.core.project_restore import (
@@ -38,6 +38,27 @@ def sample_plan(path: Path) -> Plan:
 
 def sample_session(path: Path, sid: str):
     plan = sample_plan(path)
+    db = build_db_from_plan(plan)
+    return {"plan": plan, "engineering_plan": plan, "db": db, "reach_idx": 0,
+            "path": str(path), "model_context": ModelContext(plan.model_id, 1, sid, str(path), "CANDIDATE")}
+
+
+def structure_session(path: Path, sid: str):
+    plan = sample_plan(path)
+    structure = Structure(
+        "River", "Reach", "150", "Bridge", "Source roadway", 5.0, 10.0,
+        us_rs="200", ds_rs="100", source_id="bridge-1")
+    structure.source_attributes = {
+        "US Type": "XS", "US River": "River", "US Reach": "Reach", "US RS": "200",
+        "DS Type": "XS", "DS River": "River", "DS Reach": "Reach", "DS RS": "100",
+    }
+    structure.source_profiles = {
+        "US BR Weir Profile": [(0.0, 20.0), (10.0, 22.0)],
+        "US BR Lid Profile": [(2.0, 15.0), (8.0, 16.0)],
+        "DS BR Weir Profile": [(0.0, 19.0), (10.0, 21.0)],
+        "DS BR Lid Profile": [(2.0, 14.0), (8.0, 15.0)],
+    }
+    plan.reaches[0].structures = [structure]
     db = build_db_from_plan(plan)
     return {"plan": plan, "engineering_plan": plan, "db": db, "reach_idx": 0,
             "path": str(path), "model_context": ModelContext(plan.model_id, 1, sid, str(path), "CANDIDATE")}
@@ -114,6 +135,47 @@ class ProjectRestorationTests(unittest.TestCase):
                          [(2, "P", 1.0, 2.0)])
         self.assertFalse(panels_stale(db))
         self.assertEqual(db.profiles[0].display_name, "Mapped profile")
+
+    def test_structure_reviewer_name_round_trip_keeps_source_geometry_authoritative(self):
+        source = structure_session(self.hdf, "source")
+        hecras_api._SESSIONS["source"] = source
+        row = next(item for item in source["db"].working if item.kind == "struct")
+        hecras_api.patch_working("source", [hecras_api.WorkingPatch(
+            id=row.id, xs_id=row.row_identity, label_text="Reviewer crossing")])
+        document = build_project_document(source, self.project)
+
+        target = structure_session(self.hdf, "target")
+        hecras_api._SESSIONS["target"] = target
+        restore_candidate_session("target", document)
+        restored = [item for item in target["db"].working if item.kind == "struct"]
+        self.assertTrue(restored)
+        self.assertTrue(all(item.label_text == "Reviewer crossing" for item in restored))
+        self.assertTrue(all(item.structure_model.source["name"] == "Source roadway"
+                            for item in restored))
+        self.assertTrue(all(item.structure_model.status == "VALIDATED" for item in restored))
+
+    def test_datum_choices_and_custom_label_preserve_user_provenance_on_reopen(self):
+        for index, (entered, expected, provenance) in enumerate((
+                ("NAVD88", "NAVD88", "USER_ENTERED"),
+                ("NGVD29", "NGVD29", "USER_ENTERED"),
+                ("  City of Denver Datum  ", "City of Denver Datum", "USER_ENTERED"),
+                ("", "UNKNOWN", "UNKNOWN"))):
+            with self.subTest(datum=entered or "UNKNOWN"):
+                source_id = f"source-{index}"
+                target_id = f"target-{index}"
+                source = sample_session(self.hdf, source_id)
+                hecras_api._SESSIONS[source_id] = source
+                hecras_api.put_header(source_id, hecras_api.HeaderUpdate(
+                    vertical_datum=entered, require_known_datum=bool(entered)))
+                document = build_project_document(source, self.project)
+
+                target = sample_session(self.hdf, target_id)
+                hecras_api._SESSIONS[target_id] = target
+                restore_candidate_session(target_id, document)
+                header = target["db"].header
+                self.assertEqual(header.vertical_datum, expected)
+                self.assertEqual(header.datum_provenance, provenance)
+                self.assertEqual(header.require_known_datum, bool(entered))
 
     def test_legacy_and_forged_review_claims_restore_review_required(self):
         document = self.reviewed_document()
@@ -201,6 +263,10 @@ class ProjectRestorationTests(unittest.TestCase):
         review_panels(db)
         expected = {row.source_identity: row.cumdist for row in db.working if row.kind == "xs"}
         document = build_project_document(hecras_api._SESSIONS[sid], self.project)
+        saved_source = document.engineering_context.flooding_source
+        self.assertEqual(saved_source.direction, "DOWNSTREAM_TO_UPSTREAM")
+        self.assertEqual(saved_source.topology_provenance["ordering"], "USER_CONFIRMED")
+        self.assertEqual(len(saved_source.ordered_connection_ids), 1)
 
         restored_plan = multi_reach_plan(self.hdf)
         target = {"plan": restored_plan, "reach_idx": None, "path": str(self.hdf),
@@ -212,6 +278,18 @@ class ProjectRestorationTests(unittest.TestCase):
         junction_entries = [entry for entry in target["db"].distance_ledger["ledger"] if entry["kind"] == "JUNCTION"]
         self.assertEqual(len(junction_entries), 1)
         self.assertEqual(junction_entries[0]["distance"], 10)
+
+        forged_raw = document.model_dump(mode="json")
+        forged_raw["engineering_context"]["flooding_source"]["topology_provenance"][
+            "component_ids"] = ["component-forged"]
+        forged = type(document).model_validate(forged_raw)
+        rejected_plan = multi_reach_plan(self.hdf)
+        rejected = {"plan": rejected_plan, "reach_idx": None, "path": str(self.hdf),
+            "model_context": ModelContext(rejected_plan.model_id, 3, "forged-target",
+                                          str(self.hdf), "CANDIDATE")}
+        hecras_api._SESSIONS["forged-target"] = rejected
+        with self.assertRaisesRegex(ProjectRestoreError, "topology provenance"):
+            restore_candidate_session("forged-target", forged)
 
     def test_save_api_overwrite_protection_and_candidate_rollback(self):
         from backend.app.main import app

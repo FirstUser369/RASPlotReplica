@@ -17,19 +17,19 @@ EXTERNAL_ACCEPTANCE_REQUIRED cannot be established by automated code tests.
 | North culvert | VALIDATED | Observed configuration only, approximately 110-ft face separation, explicit connections and deck evidence |
 | Muncie lateral stationing | VALIDATED | Zero added longitudinal distance and retained source connectivity only |
 | Muncie lateral authoritative full export | BLOCKED_BY_DATA | Long lateral geometry, main-channel start/end extent and receiving-area connectivity plus accepted HEC-RAS reference output |
-| Connected multi-reach | BLOCKED_BY_DATA | Computed junction fixture with explicit topology, junction stationing/length rules and accepted continuous reference profile |
-| Bridges | BLOCKED_BY_DATA | Real bridge HDF, exact plan-linked geometry text, deck/openings/connections, accepted profile |
-| Multiple openings | BLOCKED_BY_DATA | Real multiple-opening HDF/text with group identities and verified longitudinal treatment |
-| Alternative culverts / multiple barrels | BLOCKED_BY_DATA | Shape/barrel-specific HDF/text and accepted reference geometry |
+| Connected multi-reach | VALIDATED | Explicit reviewer-selected linear routes with authoritative junction transition distances; ambiguous branches and missing transition distances remain blocked |
+| Bridges | VALIDATED_WITH_PREFLIGHT | Source-backed Cherry Creek chord envelopes and identities; disjoint openings and incomplete geometry remain blocked |
+| Multiple openings | VALIDATED_WITH_PREFLIGHT | Source-backed Industrial Park opening groups represented separately; unverified combined or disjoint semantics remain blocked |
+| Box/circular/elliptical culverts and multiple barrels | VALIDATED_WITH_PREFLIGHT | Source-backed longitudinal envelopes only; different longitudinal placement and unobserved shapes remain blocked |
 | Inline/weir/gated | BLOCKED_BY_DATA | Real structures with crest/gates/operating states and verified profile geometry |
 | Multiple structures in one XS interval | BLOCKED_BY_DATA | Explicit placement/connectivity evidence and accepted interval partition |
-| SI | UNSUPPORTED | Explicitly rejected; no feet-based processing of SI, no speculative conversion |
+| SI | IMPLEMENTED_NEEDS_VALIDATION | Verified unit-contract synthetic fixtures and physical-scale equivalence; authentic SI HDF/independent engineering measurements remain required |
 | Unknown units | UNSUPPORTED | Authoritative export blocked until supported source units are established |
 | Datum | VALIDATED | SOURCE / USER_ENTERED / UNKNOWN retained; required-known deliverables block UNKNOWN; no transformations |
 | Steady results | VALIDATED | Observed North schema; stable IDs, duplicate/comma labels, identity/count checks |
 | Unsteady saved timesteps / envelope | VALIDATED | Muncie schema; parent timestamps when matched; envelope over saved rows only, not simultaneous or source-authoritative maximum |
 | Revision / panels / export snapshot | VALIDATED | Automated state transitions and isolation; unchanged manual panels, coverage checks, explicit review |
-| Panel Apply/Cancel/reopen UI | IMPLEMENTED_NEEDS_VALIDATION | Browser/user acceptance pending; API/draft contract covered separately |
+| Panel Apply/Cancel/reopen UI | VALIDATED | Real Edge Apply/reopen and state-contract coverage; project Save/reopen through native dialogs still requires human Windows acceptance |
 | PDF | VALIDATED | Serialized physical-inch scale, range clipping and missing-data gaps; not regulatory deliverable certification |
 | DXF | VALIDATED | Generated DXF inch contract, geometry/layers/gaps; export only, no DXF import |
 | AutoCAD / Civil 3D | EXTERNAL_ACCEPTANCE_REQUIRED | Open generated revisions in actual supported CAD versions, measure scales/units, inspect layers/text/gaps and plot |

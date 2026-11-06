@@ -5,9 +5,9 @@ must apply an explicit target transform rather than changing source geometry.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .export_geometry import BOTTOM, LEFT, page_dimensions, validate_export
 from .hydraulics import profile_label, resolve_profiles, segments
@@ -78,6 +78,8 @@ class DrawingAnnotation:
     rotation_degrees: float
     provenance: str
     review_status: str
+    display_anchor: EngineeringPoint | None = None
+    leader_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,7 @@ class DrawingBuildConfig:
     panel_suffix: str = ""
     panel_suffixes: tuple[tuple[int, str], ...] = ()
     agency: str = ""
+    review_notice: str = ""
 
 
 @dataclass(frozen=True)
@@ -252,27 +255,117 @@ def _points(values: Iterable[tuple[float, float]]) -> tuple[EngineeringPoint, ..
     return tuple(EngineeringPoint(float(x), float(y)) for x, y in values)
 
 
+def annotation_text_anchor(annotation: DrawingAnnotation) -> EngineeringPoint:
+    return annotation.display_anchor or annotation.anchor
+
+
+def _annotation_box(annotation: DrawingAnnotation, panel: PanelDef,
+                    anchor: EngineeringPoint | None = None) -> tuple[float, float, float, float]:
+    font_size = 9.0 if annotation.kind == "CROSS_SECTION" else 7.0
+    width = max(font_size / 72.0, len(annotation.text) * font_size * 0.52 / 72.0)
+    height = font_size / 72.0
+    if abs(annotation.rotation_degrees) % 180 == 90:
+        width, height = height, width
+    point = anchor or annotation_text_anchor(annotation)
+    center_x = (point.x - panel.start_station) / panel.h_scale
+    center_y = (point.y - panel.start_elevation) / panel.v_scale
+    return (center_x - width / 2, center_y - height / 2,
+            center_x + width / 2, center_y + height / 2)
+
+
+def _boxes_intersect(first: tuple[float, float, float, float],
+                     second: tuple[float, float, float, float]) -> bool:
+    return (first[0] < second[2] and second[0] < first[2]
+            and first[1] < second[3] and second[1] < first[3])
+
+
+def _annotation_offsets(kind: str) -> tuple[tuple[float, float], ...]:
+    if kind == "STRUCTURE":
+        return tuple((x, y) for y in (0.0, 0.16, 0.32)
+                     for x in (0.0, 0.16, -0.16, 0.32, -0.32, 0.48, -0.48))
+    if kind == "CROSS_SECTION":
+        return tuple((0.0, y) for y in
+                     (0.0, 0.16, -0.16, 0.32, -0.32, 0.48, -0.48, 0.64, -0.64))
+    return tuple((x, y) for y in (0.0, 0.16, -0.16, 0.32, -0.32)
+                 for x in (0.0, 0.16, -0.16, 0.32, -0.32))
+
+
+def _place_annotations(annotations: list[DrawingAnnotation], panel: PanelDef,
+                       polylines: list[DrawingPolyline]) -> list[DrawingAnnotation]:
+    """Deterministically offset display text without changing engineering anchors."""
+    plot_width = (panel.end_station - panel.start_station) / panel.h_scale
+    plot_height = (panel.end_elevation - panel.start_elevation) / panel.v_scale
+    edge_clearance = 0.02
+    obstacles: list[tuple[float, float, float, float]] = []
+    for polyline in polylines:
+        if polyline.kind not in {"STRUCTURE_FACE", "CULVERT_OUTLINE"} or not polyline.points:
+            continue
+        xs = [(point.x - panel.start_station) / panel.h_scale for point in polyline.points]
+        ys = [(point.y - panel.start_elevation) / panel.v_scale for point in polyline.points]
+        padding = 0.025
+        obstacles.append((min(xs) - padding, min(ys) - padding,
+                          max(xs) + padding, max(ys) + padding))
+
+    accepted: list[tuple[float, float, float, float]] = []
+    placements: dict[str, DrawingAnnotation] = {}
+    visible = [annotation for annotation in annotations if annotation.text]
+    priority = {"STRUCTURE": 0, "LANDMARK": 1, "BACKWATER": 2, "CROSS_SECTION": 3}
+    for annotation in sorted(visible, key=lambda item: (
+            priority.get(item.kind, 4), item.anchor.x, item.anchor.y, item.identity)):
+        chosen = None
+        for dx_in, dy_in in _annotation_offsets(annotation.kind):
+            candidate = EngineeringPoint(
+                annotation.anchor.x + dx_in * panel.h_scale,
+                annotation.anchor.y + dy_in * panel.v_scale)
+            box = _annotation_box(annotation, panel, candidate)
+            inside = (box[0] >= edge_clearance and box[1] >= edge_clearance
+                      and box[2] <= plot_width - edge_clearance
+                      and box[3] <= plot_height - edge_clearance)
+            if not inside or any(_boxes_intersect(box, other) for other in accepted):
+                continue
+            if any(_boxes_intersect(box, obstacle) for obstacle in obstacles):
+                continue
+            chosen = (candidate, box, dx_in != 0.0 or dy_in != 0.0)
+            break
+        if chosen is None:
+            candidate = annotation.anchor
+            box = _annotation_box(annotation, panel, candidate)
+            chosen = (candidate, box, False)
+        candidate, box, moved = chosen
+        placements[annotation.identity] = replace(
+            annotation, display_anchor=candidate if moved else None,
+            leader_required=moved)
+        accepted.append(box)
+    return [placements.get(annotation.identity, annotation) for annotation in annotations]
+
+
 def _annotation_collision_warnings(annotations: list[DrawingAnnotation], panel: PanelDef) -> tuple[str, ...]:
     boxes = []
     for annotation in annotations:
-        font_size = 9.0 if annotation.kind == "CROSS_SECTION" else 7.0
-        width = max(font_size / 72.0, len(annotation.text) * font_size * 0.52 / 72.0)
-        height = font_size / 72.0
-        if abs(annotation.rotation_degrees) % 180 == 90:
-            width, height = height, width
-        center_x = (annotation.anchor.x - panel.start_station) / panel.h_scale
-        center_y = (annotation.anchor.y - panel.start_elevation) / panel.v_scale
-        boxes.append((annotation, center_x - width / 2, center_y - height / 2,
-                      center_x + width / 2, center_y + height / 2))
+        # CROSS_SECTION_LOCATION records deliberately carry an empty label and
+        # render only a small station marker.  Treating the empty string as a
+        # minimum-sized text box produced large numbers of false text-collision
+        # warnings in dense models.
+        if not annotation.text:
+            continue
+        box = _annotation_box(annotation, panel)
+        boxes.append((annotation, *box))
     warnings = []
     for index, first in enumerate(boxes):
         for second in boxes[index + 1:]:
-            if (first[1] < second[3] and second[1] < first[3]
-                    and first[2] < second[4] and second[2] < first[4]):
+            if _boxes_intersect(first[1:], second[1:]):
                 warnings.append(
                     f"Potential annotation collision in panel {panel.panel}: "
                     f"{first[0].identity} and {second[0].identity}.")
     return tuple(warnings)
+
+
+def annotation_warnings_for_panel(
+    warnings: tuple[str, ...] | list[str], panel_id: int
+) -> tuple[str, ...]:
+    """Return only collision evidence belonging to one rendered sheet."""
+    marker = f"Potential annotation collision in panel {panel_id}:"
+    return tuple(warning for warning in warnings if warning.startswith(marker))
 
 
 def _clip_polyline(points: Iterable[tuple[float, float]], lo: float, hi: float) -> tuple[tuple[float, float], ...]:
@@ -314,9 +407,12 @@ def build_engineering_drawing(
     page_size: str | None = None,
     custom_page: tuple[float, float] | None = None,
     config: DrawingBuildConfig | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> EngineeringDrawingDefinition:
     """Build one immutable definition after the existing authoritative preflight."""
     config = config or DrawingBuildConfig()
+    cancel_check = cancel_check or (lambda: None)
+    cancel_check()
     revision = revision or require_revision(db)
     selected = resolve_profiles(db.profiles, list(profile_ids)) if profile_ids else (
         [profile for profile in db.profiles if profile.selected] or list(db.profiles[:1]))
@@ -333,9 +429,16 @@ def build_engineering_drawing(
     if not math.isfinite(station_origin) or not math.isfinite(config.elevation_origin):
         raise ValueError("Grid origins must be finite.")
     xs = [row for row in db.working if row.kind == "xs"]
+    reviewed_structure_names = {
+        row.structure_model.identity: row.label_text.strip()
+        for row in db.working
+        if (row.kind == "struct" and row.structure_model is not None
+            and row.label_text and row.label_text.strip())
+    }
     drawing_panels = []
     all_annotation_warnings = []
     for panel in panels:
+        cancel_check()
         clip_start = max(panel.start_station, revision[0])
         clip_end = min(panel.end_station, revision[1])
         bounds = EngineeringBounds(panel.start_station, panel.end_station,
@@ -351,6 +454,7 @@ def build_engineering_drawing(
                     f"stream-bed-{panel.panel}-{index}", "STREAM_BED", "STREAM_BED", _points(clipped)))
         annotations: list[DrawingAnnotation] = []
         for profile in selected:
+            cancel_check()
             for index, run in enumerate(segments(
                     [(row.cumdist, row.profiles.get(profile.profile_id)) for row in xs])):
                 clipped = _clip_polyline(run, clip_start, clip_end)
@@ -362,27 +466,45 @@ def build_engineering_drawing(
                         profile.lineweight, profile.result_type))
         structure_faces = export_faces(db.working, clip_start, clip_end)
         for face in structure_faces:
+            cancel_check()
+            structure_layer = "STRUCT_BRIDGE" if str(face.struc).startswith("BRIDGE-") else "STRUCT_CULVERT"
             polylines.append(DrawingPolyline(
-                f"structure-{face.structure_id}-{face.struc}", "STRUCTURE_FACE", "STRUCTURE",
+                f"structure-{face.structure_id}-{face.opening_id}-{face.struc}", "STRUCTURE_FACE", structure_layer,
                 _points(((face.cumdist, face.minchel), (face.cumdist, face.high_chord))),
                 provenance="VALIDATED_STRUCTURE_FACE"))
-            annotations.append(DrawingAnnotation(
-                f"structure-label-{face.structure_id}-{face.struc}", "STRUCTURE",
-                face.struc, EngineeringPoint(face.cumdist, face.high_chord), 90.0,
-                "VALIDATED_STRUCTURE_FACE", "REVIEWED"))
-
-        faces_by_structure: dict[str, dict[str, object]] = {}
+        faces_by_structure: dict[tuple[str,str], dict[str, object]] = {}
         for face in structure_faces:
             face_name = str(face.struc).rsplit("-", 1)[-1]
-            faces_by_structure.setdefault(face.structure_id, {})[face_name] = face
-        for structure_id, structure in faces_by_structure.items():
+            faces_by_structure.setdefault((face.structure_id,face.opening_id), {})[face_name] = face
+        for (structure_id,opening_id), structure in faces_by_structure.items():
             upstream = structure.get("UP")
             downstream = structure.get("DN")
+            ordered_faces = [face for face in (downstream, upstream) if face is not None]
+            if not ordered_faces:
+                ordered_faces = list(structure.values())
+            reviewer_name = reviewed_structure_names.get(structure_id)
+            source_name = next((face.opening_name for face in ordered_faces
+                                if face.opening_name), "")
+            first_face = ordered_faces[0]
+            opening_label = (reviewer_name or source_name
+                             or f"{first_face.barrels}x {first_face.shape}")
+            structure_type = str(first_face.struc).rsplit("-", 1)[0]
+            label_provenance = (
+                "USER_ENTERED_STRUCTURE_NAME_WITH_VALIDATED_SOURCE_GEOMETRY"
+                if reviewer_name else "VALIDATED_STRUCTURE_FACE")
+            annotations.append(DrawingAnnotation(
+                f"structure-label-{structure_id}-{opening_id}", "STRUCTURE",
+                f"{structure_type}: {opening_label}",
+                EngineeringPoint(
+                    sum(float(face.cumdist) for face in ordered_faces) / len(ordered_faces),
+                    max(float(face.high_chord) for face in ordered_faces)),
+                90.0, label_provenance, "REVIEWED"))
             if upstream is None or downstream is None:
                 continue
-            # The validated single-box rule establishes both face stations,
-            # inverts and soffits. This is a longitudinal opening outline only;
-            # it does not claim barrel orientation or cross-sectional shape.
+            if not str(upstream.struc).startswith(("CULVERT-", "MULTIPLE_OPENING-")):
+                continue
+            # Source rise establishes the longitudinal soffit envelope. This is
+            # not a cross-sectional rendering of the retained opening shape.
             outline = (
                 (downstream.cumdist, downstream.minchel),
                 (upstream.cumdist, upstream.minchel),
@@ -391,12 +513,13 @@ def build_engineering_drawing(
             )
             if all(math.isfinite(float(value)) for point in outline for value in point):
                 polylines.append(DrawingPolyline(
-                    f"culvert-outline-{structure_id}-{panel.panel}",
+                    f"culvert-outline-{structure_id}-{opening_id}-{panel.panel}",
                     "CULVERT_OUTLINE", "STRUCT_CULVERT_OUTLINE", _points(outline),
-                    lineweight=0.45, provenance="VALIDATED_SINGLE_BOX_LONGITUDINAL_RULE",
+                    lineweight=0.45, provenance="VALIDATED_SOURCE_OPENING_LONGITUDINAL_ENVELOPE",
                     closed=True))
 
         for row in xs:
+            cancel_check()
             if not clip_start <= row.cumdist <= clip_end:
                 continue
             y = row.profiles.get(selected[0].profile_id) if selected else None
@@ -424,6 +547,7 @@ def build_engineering_drawing(
                     EngineeringPoint(panel.start_station, profile.backwater_elev), 0.0,
                     profile.backwater_provenance, "USER_ENTERED"))
                 break
+        annotations = _place_annotations(annotations, panel, polylines)
         all_annotation_warnings.extend(_annotation_collision_warnings(annotations, panel))
         suffix = suffixes.get(panel.panel, configured_suffix or panel.panel_suffix)
         drawing_panels.append(DrawingPanel(
@@ -458,8 +582,12 @@ def build_engineering_drawing(
     distance_title = f"Distance ({db.header.unit})"
     if db.header.stream_distance_label:
         distance_title += f" above {db.header.stream_distance_label}"
+    page_title = "FLOOD PROFILES"
+    if config.review_notice.strip():
+        page_title = f"{config.review_notice.strip()} — {page_title}"
+        warnings.append(config.review_notice.strip())
     presentation = DrawingPresentation(
-        "FLOOD PROFILES",
+        page_title,
         distance_title,
         f"Elevation ({datum})",
         f"VERTICAL DATUM: {datum.upper()}",

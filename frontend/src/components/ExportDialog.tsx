@@ -1,6 +1,6 @@
-import { StaleResponse, contextVersion } from "../api/context";
+import { StaleResponse, assertContext, contextVersion } from "../api/context";
 import { useEffect, useRef, useState } from "react";
-import { api, type ExportOptions, type PanelInput, type RevisionLimitsResponse } from "../api/client";
+import { api, type ExportJobResponse, type ExportOptions, type PanelInput, type RevisionLimitsResponse } from "../api/client";
 
 type Props = {
   open: boolean;
@@ -10,6 +10,38 @@ type Props = {
   onBusy: (b: boolean) => void;
   onError: (e: string | null) => void;
 };
+
+export function cadReviewAvailability({
+  busy, panelsReady, savedPanelCount, selectedPanelCount, panelsStale,
+}: {
+  busy: boolean;
+  panelsReady: boolean;
+  savedPanelCount: number;
+  selectedPanelCount: number;
+  panelsStale: boolean;
+}) {
+  if (busy || !panelsReady) return { enabled: false, message: "Loading saved-panel status..." };
+  if (savedPanelCount === 0) return {
+    enabled: false,
+    message: "Open Panel Setup, create or load panels, then Apply to save and review them.",
+  };
+  if (panelsStale) return {
+    enabled: false,
+    message: "Saved panels require review. Open Panel Setup, verify the geometry, and Apply before export.",
+  };
+  if (selectedPanelCount === 0) return {
+    enabled: false,
+    message: "Select one saved panel in the Panels section.",
+  };
+  if (selectedPanelCount > 1) return {
+    enabled: false,
+    message: "CAD Review exports one panel at a time. Clear Selection, then select exactly one panel.",
+  };
+  return {
+    enabled: true,
+    message: "Ready: one reviewed saved panel will export as raw station/elevation DXF with aligned PNG/PGW.",
+  };
+}
 
 export default function ExportDialog({
   open, onClose, sessionId, selectedProfiles, onBusy, onError,
@@ -27,6 +59,7 @@ export default function ExportDialog({
   const [county, setCounty] = useState("");
   const [state, setState] = useState("");
   const [datum, setDatum] = useState("");
+  const [otherDatum, setOtherDatum] = useState("");
   const [requireDatum, setRequireDatum] = useState(false);
   const [startDesc, setStartDesc] = useState("");
   const [panelNo, setPanelNo] = useState(1);
@@ -49,7 +82,8 @@ export default function ExportDialog({
   const [metadataReady, setMetadataReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [download, setDownload] = useState<{url: string; label: string} | null>(null);
+  const [exportStatus, setExportStatus] = useState<ExportJobResponse | null>(null);
+  const [download, setDownload] = useState<{url: string; label: string; filename: string} | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -77,7 +111,12 @@ export default function ExportDialog({
       if (!initialized.current) {
         setStream(h.stream_name ?? ""); setCommunity(h.community ?? "");
         setCounty(h.county ?? ""); setState(h.state ?? "");
-        setRequireDatum(h.require_known_datum ?? false); setDatum(h.vertical_datum ?? "UNKNOWN"); setStartDesc(h.stream_distance_label ?? "");
+        setRequireDatum(h.require_known_datum ?? false);
+        { const loadedDatum = h.vertical_datum ?? "UNKNOWN";
+          if (["UNKNOWN", "NAVD88", "NGVD29"].includes(loadedDatum)) setDatum(loadedDatum);
+          else { setDatum("OTHER"); setOtherDatum(loadedDatum); }
+        }
+        setStartDesc(h.stream_distance_label ?? "");
         setPanelNo(h.start_panel_no ?? 1);
         initialized.current = true;
       }
@@ -133,7 +172,7 @@ export default function ExportDialog({
       profile_names: selectedProfiles,
       ...(savedPanels.length > 0 ? { panel_numbers: selectedPanelNumbers } : {}),
       page_size: pageSize, h_scale: hScale, v_scale: vScale,
-      distance_unit: unit, vertical_datum: datum, require_known_datum: requireDatum,
+      distance_unit: unit, vertical_datum: datum === "OTHER" ? otherDatum : datum, require_known_datum: requireDatum,
       stream_name: stream, community, county, state,
       start_station_description: startDesc, panel_no: panelNo,
       dxf_version: dxfVer, include_grid: grid, include_title_block: titleBlock,
@@ -150,9 +189,27 @@ export default function ExportDialog({
       setError("Select at least one saved panel to export.");
       return;
     }
-    await runExport(format.toUpperCase(), async () => {
+    const operationVersion = contextVersion();
+    await runBackgroundExport(format.toUpperCase(), async () => {
       const opts = exportOptions();
-      const res = await api.exportReport(sessionId, opts);
+      const job = await api.startExport(sessionId, opts);
+      setExportStatus(job);
+      let current = job;
+      while (!(["COMPLETED", "FAILED", "CANCELLED"] as string[]).includes(current.state)) {
+        await new Promise(resolve => window.setTimeout(resolve, 400));
+        try {
+          assertContext(operationVersion);
+        } catch (error) {
+          await api.cancelExportJob(sessionId, job.job_id).catch(() => undefined);
+          throw error;
+        }
+        current = await api.getExportJob(sessionId, job.job_id);
+        setExportStatus(current);
+      }
+      if (current.state === "FAILED") throw new Error(current.error || current.message);
+      if (current.state === "CANCELLED") throw new Error("Export cancelled. No artifact was created.");
+      if (!current.result) throw new Error("Export completed without a downloadable artifact.");
+      const res = current.result;
       const info =
         `panels=${(res as any).panel_count ?? "?"}  H=1"=${(res as any).h_scale ?? hScale}  ` +
         `V=1"=${(res as any).v_scale ?? vScale}  ${(res as any).page_size ?? pageSize}`;
@@ -161,6 +218,16 @@ export default function ExportDialog({
       if ((res as any).v_scale) setVScale(Number((res as any).v_scale));
       return res;
     });
+  }
+
+  async function cancelActiveExport() {
+    if (!exportStatus?.job_id || ["COMPLETED", "FAILED", "CANCELLED"].includes(exportStatus.state)) return;
+    try {
+      const status = await api.cancelExportJob(sessionId, exportStatus.job_id);
+      setExportStatus(status);
+    } catch (e: any) {
+      setError(String(e.message ?? e));
+    }
   }
 
   async function doCadReviewExport() {
@@ -191,7 +258,8 @@ export default function ExportDialog({
     setDownload(null); setLastInfo("");
     try {
       const res = await action();
-      setDownload({url: api.downloadUrl(sessionId, res.path), label});
+      const filename = String(res.path).split(/[\\/]/).pop() || `${label} output`;
+      setDownload({url: api.downloadUrl(sessionId, res.path), label, filename});
     } catch (e: any) {
       if (e instanceof StaleResponse) return;
       setError(String(e.message ?? e));
@@ -201,7 +269,19 @@ export default function ExportDialog({
     }
   }
 
+  async function runBackgroundExport(label: string, action: () => Promise<{path: string}>) {
+    setExportStatus(null);
+    await runExport(label, action);
+  }
+
   const disabled = exporting || loading || !metadataReady || panelsLoading || !panelsReady;
+  const cadReview = cadReviewAvailability({
+    busy: disabled,
+    panelsReady,
+    savedPanelCount: savedPanels.length,
+    selectedPanelCount: selectedPanelNumbers.length,
+    panelsStale,
+  });
   return (
     <div className="modal-backdrop export-backdrop">
       <div className="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
@@ -219,7 +299,7 @@ export default function ExportDialog({
             <h3>Format and Page</h3>
             <div className="export-fields">
               <label>Format<select value={format} onChange={e => setFormat(e.target.value as "pdf" | "dxf")}>
-                <option value="pdf">PDF</option><option value="dxf">DXF (CAD)</option>
+                <option value="pdf">Engineering PDF</option><option value="dxf">Engineering DXF (paper-inch CAD drawing)</option>
               </select></label>
               <label>Page size<select value={pageSize} onChange={e => setPageSize(e.target.value)}>
                 {Object.keys(sizes).length ? Object.entries(sizes).map(([k,v]) => <option key={k} value={k}>{k} ({v.width_in} x {v.height_in} in)</option>) : <option value={pageSize}>{pageSize}</option>}
@@ -241,10 +321,13 @@ export default function ExportDialog({
               <label>Community<input value={community} onChange={e => setCommunity(e.target.value)} /></label>
               <label>County<input value={county} onChange={e => setCounty(e.target.value)} /></label>
               <label>State<input value={state} onChange={e => setState(e.target.value)} /></label>
-              <label>Vertical datum (source or verified user entry)<input value={datum} onChange={e => setDatum(e.target.value)} /></label>
+              <label>Vertical datum (source or verified user entry)<select value={["UNKNOWN", "NAVD88", "NGVD29"].includes(datum) ? datum : "OTHER"} onChange={e => setDatum(e.target.value === "OTHER" ? "OTHER" : e.target.value)}>
+                <option value="UNKNOWN">Unknown</option><option value="NAVD88">NAVD 88</option><option value="NGVD29">NGVD 29</option><option value="OTHER">Other</option>
+              </select></label>
+              {datum === "OTHER" && <label>Other datum label<input value={otherDatum} onChange={e => setOtherDatum(e.target.value)} placeholder="Enter verified datum label" /></label>}
               <label><span>Datum requirement</span><span><input type="checkbox" checked={requireDatum} onChange={e => setRequireDatum(e.target.checked)} /> Deliverable requires a known datum</span></label>
               <label>Start station note<input value={startDesc} onChange={e => setStartDesc(e.target.value)} placeholder="e.g. confluence with ..." /></label>
-            </div>
+            </div><p className="export-hint">Selecting a datum labels the deliverable; RAS-Plot does not perform a vertical datum conversion.</p>
           </section>
           <section>
             <h3>Panels</h3>
@@ -270,6 +353,7 @@ export default function ExportDialog({
           {format === "dxf" && <section>
             <h3>DXF Options</h3>
             <div className="export-fields"><label>DXF version<select value={dxfVer} onChange={e => setDxfVer(e.target.value)}>{dxfVersions.map(v => <option key={v}>{v}</option>)}</select></label></div>
+            <p className="export-hint">R2013 is recommended for current AutoCAD workflows. Engineering DXF uses paper-inch model-space coordinates and preserves the validated sheet scale. CAD Review Package is a separate single-panel R12 export using raw station/elevation coordinates with aligned PNG/PGW files.</p>
             <div className="export-checks">
               <label><input type="checkbox" checked={grid} onChange={e => setGrid(e.target.checked)} /> Include grid</label>
               <label><input type="checkbox" checked={titleBlock} onChange={e => setTitleBlock(e.target.checked)} /> Include title block</label>
@@ -279,17 +363,21 @@ export default function ExportDialog({
         <footer className="export-footer">
           <div className="export-status" aria-live="polite">
             {loading && !error && <span>Loading project metadata...</span>}
-            {exporting && <span>Exporting...</span>}
+            {exporting && <span><strong>{exportStatus?.stage?.replaceAll("_", " ") ?? "STARTING"}</strong>: {exportStatus?.message ?? "Starting export..."}</span>}
             {error && <p role="alert" className="export-error">{error}</p>}
-            {download && <p>{download.label} generated successfully. <a href={download.url} target="_blank" rel="noreferrer">Download {download.label}</a>{lastInfo && <small>{lastInfo}</small>}</p>}
+            {download && <p>{download.label} generated successfully as <strong>{download.filename}</strong>. <a href={download.url} target="_blank" rel="noreferrer">Download {download.filename}</a><small>Your browser chooses the download destination and reports its download status.</small>{lastInfo && <small>{lastInfo}</small>}</p>}
           </div>
           <div className="export-actions">
             <div className="export-secondary">
-              <button disabled={disabled || savedPanels.length === 0 || selectedPanelNumbers.length !== 1} onClick={doCadReviewExport}>Export CAD Review Package</button>
-              <span>One reviewed saved panel; raw station/elevation DXF + aligned PNG/PGW.</span>
+              <button disabled={!cadReview.enabled} aria-describedby="cad-review-requirement"
+                title={cadReview.message} onClick={doCadReviewExport}>Export CAD Review Package</button>
+              <span id="cad-review-requirement" role="status">{cadReview.message}</span>
               <span>FDT / FIRM disabled: engineering and regulatory validation pending.</span>
             </div>
-            <div className="export-primary"><button disabled={exporting} onClick={onClose}>Cancel</button><button className="export-submit" disabled={disabled || (savedPanels.length > 0 && selectedPanelNumbers.length === 0)} onClick={doExport}>{exporting ? "Exporting..." : `Export ${format.toUpperCase()}`}</button></div>
+            <div className="export-primary">{exporting
+              ? <button onClick={cancelActiveExport} disabled={exportStatus?.state === "CANCELLED"}>Cancel Export</button>
+              : <button onClick={onClose}>Cancel</button>}
+              <button className="export-submit" disabled={disabled || (savedPanels.length > 0 && selectedPanelNumbers.length === 0)} onClick={doExport}>{exporting ? "Exporting..." : `Export ${format.toUpperCase()}`}</button></div>
           </div>
         </footer>
       </div>

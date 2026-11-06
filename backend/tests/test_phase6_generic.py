@@ -12,15 +12,17 @@ from PIL import Image
 from fastapi import HTTPException
 
 from backend.app.core.cad_review_export import export_cad_review_package
-from backend.app.core.dxf_export import clip_station_elevation_polyline
+from backend.app.core.dxf_export import clip_station_elevation_polyline, export_dxf
 from backend.app.core.hydraulics import segments
 from backend.app.core.hdf_reader import CrossSection, HdfReader, ReachGeometry
 from backend.app.core.local_state import owned_path
 from backend.app.core.model_topology import (
     build_topology, continuous_distances, create_flooding_source, stable_id,
 )
-from backend.app.core.rasplot_db import RasplotDatabase, build_working_from_plan, auto_panels
+from backend.app.core.compatibility import assess_plan_compatibility
+from backend.app.core.rasplot_db import RasplotDatabase, build_db_from_plan, build_working_from_plan, auto_panels
 from backend.app.core.state_contract import panels_stale, stationing_dirty, validate_collection
+from backend.app.core.structure_model import models_from_rows, preflight
 from backend.app.routers import hecras_api as api
 from backend.app.routers import report
 
@@ -63,6 +65,20 @@ class UniversalInspectionTests(unittest.TestCase):
             self.assertEqual(capabilities.datum_status, "UNKNOWN")
             self.assertEqual(capabilities.cross_sections_available, "MISSING")
 
+    def test_operation_scoped_compatibility_is_explicit_and_identity_aware(self):
+        model = SimpleNamespace(
+            source_units="US Customary", source_datum="UNKNOWN", profiles=[],
+            capabilities=SimpleNamespace(schema_adapter="RESULT_CROSS_SECTION_ATTRIBUTES"),
+            reaches=[ReachGeometry("River", "Reach", [], [xs("River", "Reach", "10", 0, 0)], [],
+                                   source_id="reach-source", source_order_status="SOURCE_DOWNSTREAM_FIRST_NORMALIZED")],
+        )
+        findings = assess_plan_compatibility(model)
+        ordering = next(item for item in findings if item["feature"] == "cross-section ordering")
+        self.assertEqual(ordering["status"], "SUPPORTED_WITH_LIMITATIONS")
+        self.assertEqual(ordering["entity"]["river"], "River")
+        datum = next(item for item in findings if item["feature"] == "vertical datum")
+        self.assertIn("AUTHORITATIVE_EXPORT", datum["affected_stages"])
+
 
 @unittest.skipUnless(INDUSTRIAL_ZIP.exists(), "Industrial_Park fixture unavailable")
 class IndustrialParkTopologyTests(unittest.TestCase):
@@ -85,6 +101,8 @@ class IndustrialParkTopologyTests(unittest.TestCase):
 
     def test_older_version_and_unvalidated_structure_still_inventory(self):
         self.assertIn("5.0.7", self.plan.ras_version)
+        self.assertEqual(self.plan.capabilities.schema_adapter,
+                         "STEADY_BASE_OUTPUT_GEOMETRY_INFO_LABELS_V1")
         detected = {item["type"]: item["status"] for item in self.plan.capabilities.structures_detected}
         self.assertEqual(detected["Multiple Opening"], "UNVALIDATED")
         self.assertEqual(len(self.plan.reaches), 9)
@@ -92,6 +110,19 @@ class IndustrialParkTopologyTests(unittest.TestCase):
     def test_inventory_fixture_counts(self):
         self.assertEqual(sum(len(r.cross_sections) for r in self.plan.reaches), 119)
         self.assertEqual(len(self.plan.topology.junctions), 5)
+
+    def test_real_multiple_group_culvert_uses_all_source_chord_arrays(self):
+        reach_idx = next(index for index, reach in enumerate(self.plan.reaches)
+                         if reach.river == "North_Soln" and reach.reach == "Reach 5")
+        model = models_from_rows(build_db_from_plan(self.plan, reach_idx).working)[0]
+        self.assertEqual((model.rs, model.type), ("5874", "MULTIPLE_OPENING"))
+        self.assertEqual(model.capability_id, "CULVERT_GROUP_ENVELOPES_V1")
+        self.assertEqual(model.status, "VALIDATED", model.reason)
+        self.assertEqual([(face["opening_name"], face["barrels"])
+                          for face in model.faces[::2]],
+                         [('1 - 24" CMP', 1), ('10 - 36" CMP', 10)])
+        self.assertTrue(all(face["high_chord"] >= face["low_chord"]
+                            for face in model.faces))
 
     def test_cross_sections_are_deterministically_upstream_first(self):
         for item in self.plan.reaches:
@@ -125,6 +156,52 @@ class IndustrialParkTopologyTests(unittest.TestCase):
 
     def test_generic_api_builds_validated_industrial_path(self):
         api._SESSIONS.clear()
+
+    def test_real_industrial_culvert_groups_are_source_verified(self):
+        api._SESSIONS.clear();self.addCleanup(api._SESSIONS.clear)
+        opened=api.open_source(api.OpenRequest(path=str(self.path),model_generation=71))
+        sid=opened["session_id"];inventory=api.model_inventory(sid)
+        names=["Reach 4","Reach 3.2","Reach 3C","Reach 3.1","Reach 3A","Reach 3"]
+        ids=[next(item["id"] for item in inventory["reaches"]
+                  if item["river"]=="South_Soln" and item["reach"]==name) for name in names]
+        api.commit_flooding_source(sid,api.FloodingSourceRequest(
+            display_name="Southern Solution Wash",reach_ids=ids,
+            naming_provenance="ENGINEERING_SUPPLIED"))
+        db=api._SESSIONS[sid]["db"]
+        models={(model.reach,model.rs):model for model in models_from_rows(db.working)}
+        expected={
+            ("Reach 3","9180"):[("Circular",6,4.,4.,50.,2.)],
+            ("Reach 3","8590"):[("Circular",6,4.,4.,50.,2.)],
+            ("Reach 3A","5804"):[("Circular",4,4.,4.,61.,2.)],
+            ("Reach 3C","3951"):[("Circular",1,2.,2.,72.,3.),("Ellipse",4,3.,4.,72.,3.)],
+        }
+        for key,openings in expected.items():
+            model=models[key]
+            self.assertEqual(model.status,"VALIDATED",model.reason)
+            self.assertEqual(model.capability_id,"CULVERT_GROUP_ENVELOPES_V1")
+            self.assertEqual([(group["Shape Name"],int(group["Barrels"]),group["Rise"],
+                               group["Span"],group["Length"],group["US Distance"])
+                              for group in model.openings],openings)
+            self.assertEqual(len(model.faces),2*len(openings))
+            self.assertTrue(all(face["high_chord"]>=face["low_chord"] for face in model.faces))
+        records={(record["reach"],record["rs"]):record for record in
+                 preflight(db.working,0.,max(row.cumdist for row in db.working if row.kind=="xs"))}
+        self.assertTrue(all(records[key]["status"]=="VALIDATED" for key in expected))
+        revision=(0.,max(row.cumdist for row in db.working if row.kind=="xs"))
+        api.put_revision_limits(sid,api.RevisionLimitsUpdate(
+            revision_start_station=revision[0],revision_end_station=revision[1]))
+        panels=auto_panels(db.working,h_scale=500.,v_scale=5.,station_range=revision)
+        api.put_panels(sid,api.PanelsReplace(
+            panels=[api.PanelIn(**panel.__dict__) for panel in panels],auto=False))
+        with tempfile.TemporaryDirectory() as directory:
+            dxf_path=Path(directory)/"industrial.dxf";pdf_path=Path(directory)/"industrial.pdf"
+            export_dxf(dxf_path,db)
+            report.render_profile_pdf_from_db(str(pdf_path),db)
+            outlines=list(ezdxf.readfile(dxf_path).modelspace().query(
+                'LWPOLYLINE[layer=="STRUCT_CULVERT_OUTLINE"]'))
+            self.assertEqual(len(outlines),5)
+            self.assertTrue(all(outline.closed for outline in outlines))
+            self.assertGreater(pdf_path.stat().st_size,1000)
 
     def test_multi_reach_working_edits_recalculate_through_junctions(self):
         api._SESSIONS.clear()
@@ -163,6 +240,43 @@ class IndustrialParkTopologyTests(unittest.TestCase):
         self.assertTrue(all(row.source_length_chnl == row.canonical_length_chnl
                             for row in db.working if row.kind == "xs"))
         self.assertTrue(all(row.length_chnl == 0 for row in db.working if row.kind == "struct"))
+
+    def test_industrial_reach3_10168_edit_propagates_exactly_twenty_feet(self):
+        api._SESSIONS.clear()
+        opened = api.open_source(api.OpenRequest(path=str(self.path), model_generation=43))
+        sid = opened["session_id"]
+        inventory = api.model_inventory(sid)
+        wanted = ["Reach 4", "Reach 3.2", "Reach 3C", "Reach 3.1", "Reach 3A", "Reach 3"]
+        ids = [next(item["id"] for item in inventory["reaches"]
+                    if item["river"] == "South_Soln" and item["reach"] == name)
+               for name in wanted]
+        api.commit_flooding_source(sid, api.FloodingSourceRequest(
+            display_name="Southern Solution Wash", reach_ids=ids))
+        db = api._SESSIONS[sid]["db"]
+        xs_rows = [row for row in db.working if row.kind == "xs"]
+        before = {row.source_identity: row.cumdist for row in xs_rows}
+        target = next(row for row in xs_rows
+                      if row.reach == "Reach 3" and row.rs == "10168")
+        self.assertAlmostEqual(target.length_chnl, 217.3000030517578)
+        junction_before = [entry["distance"] for entry in db.distance_ledger["ledger"]
+                           if entry["kind"] == "JUNCTION"]
+        api.patch_working(sid, [api.WorkingPatch(
+            id=target.id, xs_id=target.source_identity,
+            length_chnl=target.length_chnl + 20.)])
+        api.post_recalc_cumdist(sid, api.CumdistRequest(start=0.))
+        deltas = {(row.reach, row.rs): row.cumdist-before[row.source_identity]
+                  for row in xs_rows}
+        changed = {identity: delta for identity, delta in deltas.items()
+                   if abs(delta) > 1e-8}
+        self.assertEqual(changed, {
+            ("Reach 3", "10168"): 20.,
+            ("Reach 3", "10458"): 20.,
+        })
+        self.assertEqual(sum(abs(delta) <= 1e-8 for delta in deltas.values()), 71)
+        junction_after = [entry["distance"] for entry in db.distance_ledger["ledger"]
+                          if entry["kind"] == "JUNCTION"]
+        self.assertEqual(junction_after, junction_before)
+        self.assertEqual(len(junction_after), 5)
         api._SESSIONS.clear()
         opened = api.open_source(api.OpenRequest(path=str(self.path), model_generation=41))
         sid = opened["session_id"]

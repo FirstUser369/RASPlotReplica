@@ -43,6 +43,7 @@ class IdentityTests(unittest.TestCase):
         ]
         values = values if values is not None else [[102., 201., 101., 202.]]
         with h5py.File(self.path, "w") as f:
+            f.attrs["Units System"] = "US Customary"
             g = f.create_group(GEOM)
             g["Attributes"] = np.array(rows, dtype=GD)
             g["Station Elevation Info"] = np.array([[i * 2, 2] for i in range(len(rows))])
@@ -68,6 +69,11 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual([(x.rs, x.minchel, x.index) for x in plan.reaches[0].cross_sections],
                          [("200", 20., 1), ("100", 40., 3)])
         self.assertEqual([(x.rs, x.minchel) for x in plan.reaches[1].cross_sections], [("200", 30.), ("100", 10.)])
+        by_reach = {reach.reach: reach.source_order_status for reach in plan.reaches}
+        self.assertEqual(by_reach["A"], "SOURCE_UPSTREAM_FIRST")
+        self.assertEqual(by_reach["B"], "SOURCE_DOWNSTREAM_FIRST_NORMALIZED")
+        self.assertEqual(plan.capabilities.schema_adapter,
+                         "STEADY_BASE_OUTPUT_EXPLICIT_XS_V1")
 
     def test_second_reach_and_duplicate_rs_get_their_own_results(self):
         plan = self.fixture()
@@ -78,6 +84,8 @@ class IdentityTests(unittest.TestCase):
     def test_legacy_combined_result_identities_are_matched(self):
         plan = self.fixture(legacy=True)
         self.assertEqual([r.profiles["steady-row-0"] for r in build_working_from_plan(plan, 1)], [201., 202.])
+        self.assertEqual(plan.capabilities.schema_adapter,
+                         "STEADY_BASE_OUTPUT_GEOMETRY_INFO_LABELS_V1")
 
     def test_recalculation_equals_initial_for_each_reach(self):
         plan = self.fixture()
@@ -115,7 +123,7 @@ class IdentityTests(unittest.TestCase):
         self.fixture()
         with h5py.File(self.path, "a") as f:
             del f[RESULT + "/Cross Sections/Cross Section Attributes"]
-        with self.assertRaisesRegex(AlignmentError, "identity dataset is missing"):
+        with self.assertRaisesRegex(AlignmentError, "no verified adapter signature matched"):
             HdfReader(self.path).read_plan()
         with self.assertRaises(HTTPException) as caught:
             open_source(OpenRequest(path=str(self.path)))
@@ -146,6 +154,45 @@ class IdentityTests(unittest.TestCase):
         for rs in [b"100*", b"XS-A", b"NaN"]:
             with self.subTest(rs=rs), self.assertRaises(AlignmentError):
                 self.fixture(rows=[(b"River", b"A", rs, 1., 0., 1.)])
+
+    def test_unique_nonnumeric_labels_use_model_verified_source_row_order(self):
+        rows = [
+            (b"River", b"Numeric", b"200", 30., 0., 1.),
+            (b"River", b"Numeric", b"100", 0., 0., 1.),
+            (b"River", b"Named", b"XS-UP", 40., 0., 1.),
+            (b"River", b"Named", b"XS-DN", 0., 0., 1.),
+        ]
+        result_rows = [
+            (b"River", b"Named", b"XS-DN"),
+            (b"River", b"Numeric", b"100"),
+            (b"River", b"Named", b"XS-UP"),
+            (b"River", b"Numeric", b"200"),
+        ]
+        plan = self.fixture(rows=rows, result_rows=result_rows,
+                            values=[[4., 2., 3., 1.]])
+        named = next(reach for reach in plan.reaches if reach.reach == "Named")
+        self.assertEqual([item.rs for item in named.cross_sections], ["XS-UP", "XS-DN"])
+        self.assertEqual(named.source_order_status,
+                         "SOURCE_NONNUMERIC_UPSTREAM_FIRST_VERIFIED")
+        self.assertEqual(named.source_order_provenance["source_stations"],
+                         ["XS-UP", "XS-DN"])
+        self.assertEqual([item.profiles["steady-row-0"]
+                          for item in build_working_from_plan(
+                              plan, plan.reaches.index(named))], [3., 4.])
+
+    def test_nonmonotonic_numeric_source_order_records_normalization_provenance(self):
+        rows = [(b"River", b"A", rs, length, 0., 1.) for rs, length in (
+            (b"300", 30.), (b"100", 0.), (b"200", 20.))]
+        result_rows = [(b"River", b"A", rs) for rs in (b"100", b"300", b"200")]
+        plan = self.fixture(rows=rows, result_rows=result_rows, values=[[1., 3., 2.]])
+        reach = plan.reaches[0]
+        self.assertEqual(reach.source_order_status,
+                         "SOURCE_NONMONOTONIC_NUMERIC_NORMALIZED")
+        self.assertEqual(reach.source_order_provenance["source_stations"],
+                         ["300", "100", "200"])
+        self.assertEqual(reach.source_order_provenance["normalized_stations"],
+                         ["300", "200", "100"])
+        self.assertTrue(reach.source_order_provenance["warnings"])
 
     def test_negative_and_nonfinite_source_and_working_lengths_fail(self):
         for value in [-1., float("nan"), float("inf"), -float("inf")]:

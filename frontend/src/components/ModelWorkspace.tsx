@@ -31,7 +31,7 @@ export default function ModelWorkspace({sessionId, generation, inventory, onBuil
 
   useEffect(() => {
     setName(""); setProvenance("USER_DEFINED"); setSelected([]); setManualOrder(false); setPreview(null); setError("");
-  }, [inventory.model_context.model_id]);
+  }, [inventory.model_context.model_id, sessionId, generation]);
 
   useEffect(() => {
     let current = true;
@@ -70,7 +70,7 @@ export default function ModelWorkspace({sessionId, generation, inventory, onBuil
       <div className="model-section-heading"><div><h2 id="model-overview-title">Model Overview</h2><p>Inspect the model and define one connected flooding source before entering the engineering workspace.</p></div></div>
       <dl className="model-identity">
         <div><dt>HEC-RAS</dt><dd>{inventory.model.ras_version || "UNKNOWN"}</dd></div>
-        <div><dt>Units</dt><dd>{inventory.model.source_units || "UNKNOWN"}</dd></div>
+        <div><dt>Units</dt><dd>{inventory.model.source_units || "UNKNOWN"}{inventory.model.source_units === "SI" ? " source → canonical working ft" : ""}</dd></div>
         <div><dt>Plan</dt><dd title={inventory.model.name}>{inventory.model.name || "UNKNOWN"}</dd></div>
         <div><dt>Geometry</dt><dd title={capabilities.geometry_identity?.name}>{capabilities.geometry_identity?.name || capabilities.geometry_identity?.path || "UNKNOWN"}</dd></div>
         <div><dt>Datum</dt><dd>{inventory.model.source_datum || capabilities.datum_status || "UNKNOWN"}</dd></div>
@@ -82,12 +82,14 @@ export default function ModelWorkspace({sessionId, generation, inventory, onBuil
         {capabilityRows.map(([label, status]) => <span key={label}><b className={statusClass(String(status))}>{status}</b> {label}</span>)}
       </div>
       {(capabilities.structures_detected ?? []).map((item: any) => <div className="model-notice" key={`${item.type}:${item.status}`}><b className={statusClass(item.status)}>{item.status}</b><span><strong>{item.type}</strong> detected. {item.status === "UNVALIDATED" ? "Inventory is available; authoritative engineering interpretation has not been validated." : "Source inventory is available."}</span></div>)}
-      {capabilities.unit_system === "SI" || inventory.model.source_units === "SI" ? <div className="model-notice"><b className={statusClass("UNVALIDATED")}>UNVALIDATED</b><span>SI units detected. Inspection is available; authoritative engineering processing is currently blocked.</span></div> : null}
+      {(capabilities.workflow_capabilities ?? []).map((item: any, index: number) => <div className="model-notice" key={`${item.feature}:${item.entity?.identity ?? item.entity?.source_id ?? index}`}><b className={statusClass(item.status)}>{String(item.status).replaceAll("_", " ")}</b><span><strong>{item.feature}</strong> — {item.reason} <small>Affects: {(item.affected_stages ?? []).join(", ")}</small></span></div>)}
+      {(capabilities.unit_system === "SI" || inventory.model.source_units === "SI") && capabilities.workflow_capabilities == null ? <div className="model-notice"><b className={statusClass("UNVALIDATED")}>INSPECTION ONLY</b><span>SI units detected. Open the model to verify and apply the canonical engineering-unit contract.</span></div> : null}
     </section>
 
     <div className="model-workspace-grid">
       <section className="model-panel reach-inventory"><h3>River / Reach Inventory</h3>
         <p className="model-help">Available reaches are grouped by connected component and displayed downstream → upstream. Reaches marked Branch share a topology level; their display order is stable but is not a hydraulic branch choice.</p>
+        {(inventory.topology_warnings ?? []).map(warning => <p className="topology-order-warning" key={warning}>{warning}</p>)}
         {components.map((component, componentIndex) => <details key={component.id} open><summary>Connected component {componentIndex + 1} <small>{component.reaches.length} reach{component.reaches.length === 1 ? "" : "es"}</small></summary>
           {component.warning && <p className="topology-order-warning">{component.warning}</p>}
           <div className="reach-list">{component.reaches.map(reach => <article key={reach.id} className={selected.includes(reach.id) ? "reach-card reach-card--selected" : "reach-card"}>
@@ -96,6 +98,7 @@ export default function ModelWorkspace({sessionId, generation, inventory, onBuil
             <div><span>Downstream</span><b>{reach.downstream_connection?.connection_name || reach.downstream_connection?.connection_type || "UNKNOWN"}</b></div>
             <div><span>Upstream</span><b>{reach.upstream_connection?.connection_name || reach.upstream_connection?.connection_type || "UNKNOWN"}</b></div>
             <div><span>Topology</span><b className={statusClass(reach.topology_status)}>{reach.topology_status}</b></div>
+            <div title={String(reach.source_order_provenance?.rule ?? "Source ordering metadata unavailable")}><span>XS ordering</span><b className={statusClass(reach.source_order_status ?? "UNKNOWN")}>{reach.source_order_status ?? "UNKNOWN"}</b></div>
             <button type="button" disabled={selected.includes(reach.id)} title="Insert in downstream-to-upstream assembly order" onClick={() => setSelected(items => addReachInAssemblyOrder(inventory, items, reach.id, manualOrder))}>Add to source</button>
           </article>)}</div>
         </details>)}

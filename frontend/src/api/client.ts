@@ -49,6 +49,9 @@ export type GetProfileResponse = {
   vertical_datum?: string;
   datum_provenance?: string;
   source_units?: string;
+  working_units?: string;
+  unit_contract?: Record<string, string>;
+  unit_conversion_status?: string;
   profiles_selected?: string[];
   profile_segments?: Record<string, Array<Array<[number, number]>>>;
   profile_metadata?: ProfileMeta[];
@@ -67,6 +70,14 @@ export type GetProfileResponse = {
     label_letter: string | null;
     label_text: string | null;
     wsel_by_profile?: Record<string, number | null>;
+    raw_wsel_by_profile?: Record<string, number | null>;
+    adjustment_by_profile?: Record<string, {
+      original_value?: number | null; adjusted_value?: number | null;
+      reason?: string; provenance?: string;
+    } | null>;
+    drawdown_by_profile?: Record<string, {
+      working_value: number; qualifying_level: number; reason: string;
+    } | null>;
   }>;
   structure_models?: Array<{
     identity: string; river: string; reach: string; rs: string; type: string;
@@ -86,6 +97,13 @@ export type GetProfileResponse = {
     rs: string;
     type: string;
     name: string;
+    source_name?: string | null;
+    reviewer_name?: string | null;
+    name_provenance?: "SOURCE" | "USER_ENTERED" | "UNNAMED" | string;
+    source_faces?: Array<{
+      face: string; station: number; invert: number;
+      low_chord: number; high_chord: number; provenance?: Record<string, unknown>;
+    }>;
     weir_width: number;
     low_chord: number | null;
     high_chord: number | null;
@@ -134,6 +152,17 @@ export type ExportOptions = {
 };
 
 export type ExportResponse = { path: string; size_bytes: number; format?: string };
+export type ExportJobResponse = {
+  job_id: string;
+  session_id: string;
+  export_type: string;
+  output_filename: string;
+  state: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  stage: "QUEUED" | "VALIDATION" | "DRAWING_DEFINITION" | "RENDERING" | "WRITING" | "FINALIZATION" | "COMPLETED" | "FAILED" | "CANCELLED";
+  message: string;
+  result: ExportResponse | null;
+  error: string | null;
+};
 
 export type PanelInput = {
   panel: number;
@@ -151,6 +180,71 @@ export type PanelInput = {
 
 export type PanelsResponse = {
   panels: PanelInput[];
+};
+
+export type PanelContentContributor = {
+  kind: string;
+  identity: string;
+  label: string;
+  minimum_elevation: number;
+  maximum_elevation: number;
+  outside_existing_range: boolean;
+  below_by: number;
+  above_by: number;
+  provenance: string;
+};
+
+export type PanelContentAnalysis = {
+  panel: number;
+  panel_suffix: string;
+  display_id: string;
+  existing_minimum_elevation: number;
+  existing_maximum_elevation: number;
+  required_minimum_elevation: number;
+  required_maximum_elevation: number;
+  missing_lower_clearance: number;
+  missing_upper_clearance: number;
+  suggested_minimum_elevation: number;
+  suggested_maximum_elevation: number;
+  existing_panel_valid: boolean;
+  responsible_content: PanelContentContributor[];
+  saved_vertical_scale: number;
+  saved_horizontal_scale: number;
+  page_size: string;
+  physical_vertical_capacity: number;
+  required_content_span: number;
+  suggested_span: number;
+  suggested_required_plot_height_inches: number;
+  suggested_vertical_clearance_inches: number;
+  suggested_physically_valid: boolean;
+  requires_scale_or_page_change: boolean;
+  minimum_vertical_scale_for_suggestion: number;
+  sheet_capacity: {
+    page_size: string;
+    paper_width_inches: number;
+    paper_height_inches: number;
+    usable_plot_width_inches: number;
+    usable_plot_height_inches: number;
+    horizontal_station_span: number;
+    vertical_elevation_span: number;
+    horizontal_scale: number;
+    vertical_scale: number;
+    required_plot_width_inches: number;
+    required_plot_height_inches: number;
+    remaining_horizontal_clearance_inches: number;
+    remaining_vertical_clearance_inches: number;
+    horizontal_overflow_inches: number;
+    vertical_overflow_inches: number;
+    physically_valid: boolean;
+  };
+};
+
+export type PanelContentAnalysisResponse = {
+  panels: PanelContentAnalysis[];
+  all_panels_valid: boolean;
+  panels_stale: boolean;
+  proposal_only: true;
+  message: string;
 };
 
 export type PanelsReplace = {
@@ -178,6 +272,16 @@ export type RevisionLimitsResponse = {
   model_start_station: number;
   model_end_station: number;
   explicit: boolean;
+};
+
+export type StructurePreflightResponse = {
+  can_export: boolean;
+  inventory: {state?: string; reason?: string};
+  structures: Array<{
+    identity: string; river: string; reach: string; rs: string; type: string;
+    status: string; reason: string; affects_range: boolean; message: string;
+    missing_fields?: string[]; diagnostic_preview_available?: boolean;
+  }>;
 };
 
 export type AutoLetterResponse = {
@@ -348,8 +452,15 @@ export const api = {
   getMap: (sid: string) => req<GeoJSON.FeatureCollection>(`/api/map/${sid}`),
   getDb: (sid: string) => req<any>(`/api/db/${sid}`),
   getPanels: (sid: string) => req<PanelsResponse>(`/api/db/${sid}/panels`),
+  analyzePanelContent: (sid: string, panels: PanelInput[], pageSize: string, roundingIncrement = 5) =>
+    req<PanelContentAnalysisResponse>(`/api/db/${sid}/panels/content-analysis`, {
+      method: "POST",
+      body: JSON.stringify({panels, page_size: pageSize, rounding_increment: roundingIncrement}),
+    }),
   getRevisionLimits: (sid: string) =>
     req<RevisionLimitsResponse>(`/api/db/${sid}/revision-limits`),
+  getStructurePreflight: (sid: string) =>
+    req<StructurePreflightResponse>(`/api/db/${sid}/structure-preflight`),
   putRevisionLimits: (sid: string, start: number, end: number) =>
     req<RevisionLimitsResponse>(`/api/db/${sid}/revision-limits`, {
       method: "PUT",
@@ -398,6 +509,17 @@ export const api = {
     req<ExportResponse>(`/api/report/export`, {
       method: "POST",
       body: JSON.stringify({ session_id: sid, ...opts }),
+    }),
+  startExport: (sid: string, opts: ExportOptions) =>
+    req<ExportJobResponse>(`/api/report/export/start`, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sid, ...opts }),
+    }),
+  getExportJob: (sid: string, jobId: string) =>
+    req<ExportJobResponse>(`/api/report/export-jobs/${encodeURIComponent(sid)}/${encodeURIComponent(jobId)}`),
+  cancelExportJob: (sid: string, jobId: string) =>
+    req<ExportJobResponse>(`/api/report/export-jobs/${encodeURIComponent(sid)}/${encodeURIComponent(jobId)}`, {
+      method: "DELETE",
     }),
   exportCadReviewPackage: (sid: string, opts: ExportOptions) =>
     req<ExportResponse>(`/api/report/cad-review-package`, {

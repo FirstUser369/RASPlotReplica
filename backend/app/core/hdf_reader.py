@@ -16,6 +16,8 @@ import json
 import hashlib
 from datetime import datetime
 from .hydraulics import normalize_value, prepare_profiles, ground_value
+from .engineering_units import EngineeringUnitContract, UnitContractError
+from .hdf_schema_adapters import REGISTRY, HdfSchemaAdapter, SchemaAdapterError
 import math
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -92,6 +94,145 @@ def station_number(rs: str) -> float:
     return value
 
 
+def _convert_optional_length(value: Any, contract: EngineeringUnitContract) -> float | None:
+    parsed = _f(value)
+    return None if parsed is None else contract.source_to_working(parsed)
+
+
+def _convert_profile_points(values: Any, contract: EngineeringUnitContract) -> Any:
+    if not isinstance(values, (list, tuple)):
+        return values
+    converted = []
+    for item in values:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return values
+        x, y = _f(item[0]), _f(item[1])
+        if x is None or y is None:
+            return values
+        converted.append((contract.source_to_working(x), contract.source_to_working(y)))
+    return converted
+
+
+_OPENING_LENGTH_FIELDS = {
+    "rise", "span", "length", "us distance", "invert us", "invert ds",
+    "us invert", "ds invert", "us station", "ds station",
+}
+
+
+def _convert_opening_record(record: dict[str, Any], contract: EngineeringUnitContract) -> dict[str, Any]:
+    converted = {}
+    for key, value in record.items():
+        normalized = key.strip().lower()
+        if normalized in _OPENING_LENGTH_FIELDS:
+            parsed = _f(value)
+            converted[key] = value if parsed is None else contract.source_to_working(parsed)
+        elif key == "barrel_records" and isinstance(value, list):
+            converted[key] = [_convert_opening_record(item, contract) for item in value]
+        else:
+            converted[key] = value
+    return converted
+
+
+def apply_engineering_unit_contract(plan: "Plan", contract: EngineeringUnitContract) -> None:
+    """Convert source engineering lengths/elevations once into canonical feet.
+
+    Map-coordinate polylines and river-station identity strings are deliberately
+    untouched. Raw source quantities remain attached to their source objects.
+    """
+    if plan.unit_conversion_status == "COMPLETE":
+        raise AlignmentError("Engineering unit conversion was already applied; refusing to double-convert the plan.")
+    for reach in plan.reaches:
+        for xs in reach.cross_sections:
+            xs.source_engineering = {
+                "unit": contract.source_length_unit.value,
+                "length_channel": xs.length_channel,
+                "left_bank": xs.left_bank,
+                "right_bank": xs.right_bank,
+                "station_elevation": list(xs.station_elevation),
+                "minchel": xs.minchel,
+            }
+            xs.length_channel = contract.source_to_working(xs.length_channel)
+            xs.left_bank = contract.source_to_working(xs.left_bank)
+            xs.right_bank = contract.source_to_working(xs.right_bank)
+            xs.station_elevation = list(contract.source_points_to_working(xs.station_elevation))
+            xs.minchel = _convert_optional_length(xs.minchel, contract)
+            xs.length_provenance.update({
+                "source_unit": contract.source_length_unit.value,
+                "working_unit": contract.working_length_unit.value,
+                "working_value": xs.length_channel,
+                "conversion_contract": contract.conversion_contract,
+            })
+            if xs.ground_provenance.get("banks"):
+                xs.ground_provenance["source_banks"] = list(xs.ground_provenance["banks"])
+                xs.ground_provenance["banks"] = [
+                    contract.source_to_working(value) for value in xs.ground_provenance["banks"]]
+            xs.ground_provenance.update({
+                "source_unit": contract.source_length_unit.value,
+                "working_unit": contract.working_length_unit.value,
+                "conversion_contract": contract.conversion_contract,
+            })
+        for structure in reach.structures:
+            _convert_structure_engineering(structure, contract)
+        reach.source_connectivity_raw = dict(reach.source_connectivity)
+        for key in ("Junction to US XS", "DS XS to Junction"):
+            if key in reach.source_connectivity:
+                converted = _convert_optional_length(reach.source_connectivity[key], contract)
+                if converted is not None:
+                    reach.source_connectivity[key] = converted
+    for structure in plan.unassigned_structures:
+        _convert_structure_engineering(structure, contract)
+    plan.source_junction_records = [dict(item) for item in plan.junction_records]
+    for record in plan.junction_records:
+        for key in ("Junction to US XS", "DS XS to Junction"):
+            if key in record:
+                converted = _convert_optional_length(record[key], contract)
+                if converted is not None:
+                    record[key] = converted
+    for profile in plan.profiles:
+        for value in profile.values:
+            if value.get("value") is not None:
+                source = float(value["value"])
+                value["source_value"] = source
+                value["source_unit"] = contract.source_length_unit.value
+                value["value"] = contract.source_to_working(source)
+                value["working_unit"] = contract.working_length_unit.value
+                value["conversion_contract"] = contract.conversion_contract
+        profile.wsel = [value.get("value") for value in profile.values]
+    plan.working_units = "INTERNAL_US_CUSTOMARY"
+    plan.unit_contract = contract.to_manifest()
+    plan.unit_conversion_status = "COMPLETE"
+
+
+def _convert_structure_engineering(structure: "Structure", contract: EngineeringUnitContract) -> None:
+    structure.source_engineering = {
+        "unit": contract.source_length_unit.value,
+        "upstream_distance": structure.upstream_distance,
+        "weir_width": structure.weir_width,
+        "low_chord": structure.low_chord,
+        "high_chord": structure.high_chord,
+        "minchel": structure.minchel,
+        "profile_data": list(structure.profile_data),
+        "lateral_hw_distance": structure.lateral_hw_distance,
+        "lateral_tw_distance": structure.lateral_tw_distance,
+    }
+    for name in ("upstream_distance", "weir_width", "low_chord", "high_chord", "minchel",
+                 "culvert_length", "culvert_us_distance", "invert_us", "invert_ds",
+                 "lateral_hw_distance", "lateral_tw_distance"):
+        setattr(structure, name, _convert_optional_length(getattr(structure, name), contract))
+    structure.profile_data = _convert_profile_points(structure.profile_data, contract)
+    structure.hw_connectivity = [(identity, contract.source_to_working(value))
+                                 for identity, value in structure.hw_connectivity]
+    structure.tw_connectivity = [(identity, contract.source_to_working(value))
+                                 for identity, value in structure.tw_connectivity]
+    structure.source_profiles_raw = source_value(structure.source_profiles)
+    structure.source_profiles = {
+        key: _convert_profile_points(value, contract)
+        for key, value in structure.source_profiles.items()
+    }
+    structure.source_openings = source_value(structure.openings)
+    structure.openings = [_convert_opening_record(record, contract) for record in structure.openings]
+
+
 # --------------------------------------------------------------------------- #
 # Data classes                                                                 #
 # --------------------------------------------------------------------------- #
@@ -112,6 +253,7 @@ class CrossSection:
     index: int = 0
     ground_provenance: dict = field(default_factory=dict)
     length_provenance: dict = field(default_factory=dict)
+    source_engineering: dict[str, Any] = field(default_factory=dict)
 
     @property
     def identity(self) -> tuple[str, str, str]:
@@ -150,6 +292,9 @@ class Structure:
     source_connections: list[dict[str, Any]] = field(default_factory=list)
     openings: list[dict[str, Any]] = field(default_factory=list)
     source_issues: list[str] = field(default_factory=list)
+    source_engineering: dict[str, Any] = field(default_factory=dict)
+    source_profiles_raw: dict[str, Any] = field(default_factory=dict)
+    source_openings: list[dict[str, Any]] = field(default_factory=list)
 
 
 
@@ -186,6 +331,9 @@ class ReachGeometry:
     source_id: str = ""
     source_path: str = ""
     source_connectivity: dict[str, Any] = field(default_factory=dict)
+    source_order_status: str = "UNKNOWN"
+    source_order_provenance: dict[str, Any] = field(default_factory=dict)
+    source_connectivity_raw: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -214,6 +362,11 @@ class Plan:
     capabilities: Any = None
     topology: Any = None
     junction_records: list[dict[str, Any]] = field(default_factory=list)
+    source_junction_records: list[dict[str, Any]] = field(default_factory=list)
+    working_units: str = "INTERNAL_US_CUSTOMARY"
+    unit_contract: dict[str, str] = field(default_factory=dict)
+    unit_conversion_status: str = "UNVERIFIED"
+    schema_adapter: dict[str, Any] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,6 +422,9 @@ class HdfReader:
         self.unassigned_structures = []
         self.structure_inventory = {"state":"VERIFIED_NONE"}
         self.junction_records = []
+        self.result_identity_adapter = "UNRESOLVED_INSPECTION"
+        self.schema_adapter: HdfSchemaAdapter | None = None
+        self.schema_adapter_evidence: dict[str, Any] = {}
 
     def inspect(self):
         """Discover readable schema capabilities without asserting export support."""
@@ -278,7 +434,11 @@ class HdfReader:
             raise FileNotFoundError(self.plan_hdf_path)
         with h5py.File(self.plan_hdf_path, "r") as source:
             result.ras_version = _s(source.attrs.get("File Version", "UNKNOWN")) or "UNKNOWN"
-            result.unit_system = _s(source.attrs.get("Units System", "UNKNOWN")) or "UNKNOWN"
+            raw_units = _s(source.attrs.get("Units System", "UNKNOWN")) or "UNKNOWN"
+            try:
+                result.unit_system = EngineeringUnitContract.from_source_system(raw_units).source_system.value
+            except UnitContractError:
+                result.unit_system = raw_units
             result.results_available = "SUPPORTED" if "Results" in source else "MISSING"
             result.result_profiles_available = result.results_available
             result.available_result_datasets = sorted(
@@ -327,7 +487,7 @@ class HdfReader:
                 result.unsupported_or_unvalidated_features.extend(
                     value for value in types if value.upper() not in {"CULVERT", "LATERAL STRUCTURE", "INLINE WEIR"}
                 )
-        if result.unit_system not in {"US Customary", "UNKNOWN"}:
+        if result.unit_system not in {"US Customary", "SI", "UNKNOWN"}:
             result.unsupported_or_unvalidated_features.append(f"Unit system {result.unit_system}")
         return result
 
@@ -352,8 +512,33 @@ class HdfReader:
             plan.source_datum = _s(f.attrs.get("Vertical Datum","UNKNOWN"))
             plan.ras_version = _s(f.attrs.get("File Version", "UNKNOWN")) or "UNKNOWN"
         plan.model_id = "model-" + file_fingerprint(self.plan_hdf_path)[:20]
-        if plan.source_units not in ("US Customary","UNKNOWN"):
-            raise AlignmentError(f"Source units {plan.source_units!r} are unsupported; use a verified US Customary model. SI conversion is not implemented.")
+        try:
+            unit_contract = EngineeringUnitContract.from_source_system(plan.source_units)
+        except UnitContractError as exc:
+            raise AlignmentError(str(exc)) from exc
+        plan.source_units = unit_contract.source_system.value
+        if plan.geometry_path is not None:
+            with h5py.File(plan.geometry_path, "r") as geometry_source:
+                geometry_units = _s(geometry_source.attrs.get("Units System", ""))
+            if geometry_units:
+                try:
+                    geometry_system = EngineeringUnitContract.from_source_system(geometry_units).source_system
+                except UnitContractError as exc:
+                    raise AlignmentError(f"Geometry source units are unsupported: {geometry_units!r}.") from exc
+                if geometry_system is not unit_contract.source_system:
+                    raise AlignmentError(
+                        f"Plan/results units {plan.source_units!r} conflict with geometry units {geometry_system.value!r}.")
+            elif unit_contract.source_system.value == "SI" and plan.geometry_path != plan.plan_path:
+                raise AlignmentError(
+                    "SI companion geometry has no Units System metadata; authoritative conversion is unavailable.")
+        try:
+            with h5py.File(self.plan_hdf_path, "r") as plan_source, \
+                    h5py.File(plan.geometry_path or self.plan_hdf_path, "r") as geometry_source:
+                self.schema_adapter, self.schema_adapter_evidence = REGISTRY.select(
+                    plan_source, geometry_source)
+        except SchemaAdapterError as exc:
+            raise AlignmentError(str(exc)) from exc
+        plan.schema_adapter = dict(self.schema_adapter_evidence)
         plan.reaches = self._read_reaches_geometry()
         if not plan.reaches:
             raise AlignmentError("No ordinary cross-section geometry is available in the selected plan geometry.")
@@ -383,10 +568,17 @@ class HdfReader:
                     plan.structure_inventory = {"state":"INCOMPLETE", "reason":"Plan-linked geometry text contains structures absent from the HDF inventory."}
         plan.profiles = self._read_profiles(plan.reaches)
         prepare_profiles(plan.profiles)
+        apply_engineering_unit_contract(plan, unit_contract)
         from .model_topology import build_topology
         plan.topology = build_topology(plan.model_id, plan.reaches, plan.junction_records,
                                        str(plan.geometry_path or plan.plan_path))
         capabilities.result_profiles_available = "SUPPORTED" if plan.profiles else "MISSING"
+        capabilities.schema_adapter = self.schema_adapter.name
+        capabilities.workflow_capabilities.append({
+            "capability": "HDF_SCHEMA_ADAPTER",
+            "status": self.schema_adapter.confidence,
+            "evidence": dict(self.schema_adapter_evidence),
+        })
         return plan
 
     # -- file / sibling helpers -------------------------------------------- #
@@ -521,15 +713,23 @@ class HdfReader:
                 s_table_info = structs["Table Info"][()] if "Table Info" in structs else None
                 culvert_groups = structs.get("Culvert Groups")
                 culvert_group_attrs = None
+                culvert_barrel_attrs = None
                 if culvert_groups is not None and "Attributes" in culvert_groups:
                     culvert_group_attrs = culvert_groups["Attributes"][()]
                     group_fields = culvert_group_attrs.dtype.names or ()
-                    if not {"River", "Reach", "RS"}.issubset(group_fields):
-                        self.structure_inventory = {"state":"UNSUPPORTED", "reason":"Culvert group inventory lacks explicit river/reach/RS identities."}
-                    else:
+                    if "Barrels" in culvert_groups and "Attributes" in culvert_groups["Barrels"]:
+                        culvert_barrel_attrs = culvert_groups["Barrels"]["Attributes"][()]
+                    if "Structure ID" in group_fields:
+                        invalid_ids = [int(row["Structure ID"]) for row in culvert_group_attrs
+                                       if int(row["Structure ID"]) < 0 or int(row["Structure ID"]) >= len(s_attrs)]
+                        if invalid_ids:
+                            self.structure_inventory = {"state":"INCOMPLETE", "reason":"Culvert group Structure ID is outside the structure inventory."}
+                    elif {"River", "Reach", "RS"}.issubset(group_fields):
                         known = {(_s(r["River"]), _s(r["Reach"]), _s(r["RS"])) for r in s_attrs}
                         if any((_s(r["River"]), _s(r["Reach"]), _s(r["RS"])) not in known for r in culvert_group_attrs):
                             self.structure_inventory = {"state":"INCOMPLETE", "reason":"Culvert group identities are absent from the structure inventory."}
+                    else:
+                        self.structure_inventory = {"state":"UNSUPPORTED", "reason":"Culvert groups lack Structure ID and explicit river/reach/RS identities."}
                 if s_table_info is not None:
                     if len(s_table_info) != len(s_attrs):
                         self.structure_inventory = {"state":"INCOMPLETE", "reason":"Structure Table Info count differs from Attributes."}
@@ -608,24 +808,41 @@ class HdfReader:
                     if culvert_group_attrs is not None:
                         group_fields = culvert_group_attrs.dtype.names or ()
                         for group_index, grp in enumerate(culvert_group_attrs):
-                            if not all(k in group_fields for k in ("River", "Reach", "RS")):
-                                st.source_issues.append("Culvert groups lack river/reach/RS association fields.")
-                                continue
-                            if (_s(grp["River"]), _s(grp["Reach"]), _s(grp["RS"])) != (river, reach_name, rs):
-                                continue
-                            if "Struct ID" in group_fields and "Struct ID" in fields and _s(grp["Struct ID"]) != _s(rec["Struct ID"]):
+                            association = ""
+                            if "Structure ID" in group_fields:
+                                if int(grp["Structure ID"]) != i:
+                                    continue
+                                association = "explicit Structure ID -> Structures/Attributes row"
+                            elif all(k in group_fields for k in ("River", "Reach", "RS")):
+                                if (_s(grp["River"]), _s(grp["Reach"]), _s(grp["RS"])) != (river, reach_name, rs):
+                                    continue
+                                association = "explicit river/reach/RS"
+                            else:
+                                st.source_issues.append("Culvert groups lack an explicit Structure ID or river/reach/RS association.")
                                 continue
                             opening = source_record(grp)
                             opening["source_id"] = f"Structures/Culvert Groups/Attributes[{group_index}]"
-                            opening["association"] = "explicit Struct ID" if "Struct ID" in fields else "unique river/reach/RS candidate; checked at normalization"
+                            opening["association"] = association
+                            # HEC-RAS schemas use both US/DS Invert and Invert US/DS.
+                            # Retain the source fields and publish stable aliases downstream.
+                            if "US Invert" in opening and "Invert US" not in opening:
+                                opening["Invert US"] = opening["US Invert"]
+                            if "DS Invert" in opening and "Invert DS" not in opening:
+                                opening["Invert DS"] = opening["DS Invert"]
+                            if culvert_barrel_attrs is not None:
+                                barrel_fields = culvert_barrel_attrs.dtype.names or ()
+                                opening["barrel_records"] = [source_record(barrel) for barrel in culvert_barrel_attrs
+                                    if "Structure ID" in barrel_fields and int(barrel["Structure ID"]) == i
+                                    and ("Culvert Group ID" not in barrel_fields
+                                         or int(barrel["Culvert Group ID"]) == group_index)]
                             st.openings.append(opening)
                         # Never drop later groups or publish the first as the whole structure.
                         if len(st.openings) == 1:
                             group = st.openings[0]
                             st.culvert_length = _f(group.get("Length"))
                             st.culvert_us_distance = _f(group.get("US Distance"))
-                            st.invert_us = _f(group.get("Invert US"))
-                            st.invert_ds = _f(group.get("Invert DS"))
+                            st.invert_us = _f(group.get("Invert US", group.get("US Invert")))
+                            st.invert_ds = _f(group.get("Invert DS", group.get("DS Invert")))
                     key = (river, reach_name)
                     if key in reaches_map:
                         reaches_map[key].structures.append(st)
@@ -646,12 +863,76 @@ class HdfReader:
                         reaches_map[key].source_path = str(geom_path)
                         reaches_map[key].source_connectivity = source_record(rec)
 
-        for reach in reaches_map.values():
+        # Establish the file's source-row orientation from reaches whose numeric
+        # stations prove it.  This permits unique nonnumeric labels only when
+        # the same HDF supplies a consistent ordering convention; labels are
+        # never coerced into fabricated station numbers.
+        analyses: dict[tuple[str, str], tuple[list[float] | None, str]] = {}
+        proven_directions: set[str] = set()
+        for key, reach in reaches_map.items():
             identities = [xs.identity for xs in reach.cross_sections]
-            numbers = [station_number(xs.rs) for xs in reach.cross_sections]
-            if len(set(identities)) != len(identities) or len(set(numbers)) != len(numbers):
-                raise AlignmentError(f"Reach {(reach.river, reach.reach)!r}: duplicate/coincident river-station identifiers cannot establish XS ordering.")
-            reach.cross_sections.sort(key=lambda xs: -station_number(xs.rs))
+            if len(set(identities)) != len(identities):
+                raise AlignmentError(
+                    f"Reach {(reach.river, reach.reach)!r}: duplicate river-station labels require "
+                    "a result-side authoritative discriminator; none is available in this schema.")
+            try:
+                numbers = [station_number(xs.rs) for xs in reach.cross_sections]
+            except AlignmentError:
+                analyses[key] = (None, "NONNUMERIC")
+                continue
+            if len(set(numbers)) != len(numbers):
+                raise AlignmentError(
+                    f"Reach {(reach.river, reach.reach)!r}: numerically coincident river-station "
+                    "identifiers cannot establish XS ordering.")
+            descending = all(a > b for a, b in zip(numbers, numbers[1:]))
+            ascending = all(a < b for a, b in zip(numbers, numbers[1:]))
+            direction = "UPSTREAM_FIRST" if descending else "DOWNSTREAM_FIRST" if ascending else "NONMONOTONIC"
+            analyses[key] = (numbers, direction)
+            if direction != "NONMONOTONIC":
+                proven_directions.add(direction)
+
+        for key, reach in reaches_map.items():
+            source_indices = [xs.index for xs in reach.cross_sections]
+            source_stations = [xs.rs for xs in reach.cross_sections]
+            numbers, direction = analyses[key]
+            warnings: list[str] = []
+            if numbers is not None:
+                reach.source_order_status = (
+                    "SOURCE_UPSTREAM_FIRST" if direction == "UPSTREAM_FIRST"
+                    else "SOURCE_DOWNSTREAM_FIRST_NORMALIZED" if direction == "DOWNSTREAM_FIRST"
+                    else "SOURCE_NONMONOTONIC_NUMERIC_NORMALIZED")
+                if direction == "NONMONOTONIC":
+                    warnings.append("Source rows were nonmonotonic; numeric RS ordering established the normalized order.")
+                reach.cross_sections.sort(key=lambda xs: -station_number(xs.rs))
+                normalization = "numeric river station descending (upstream first)"
+            else:
+                if len(proven_directions) != 1:
+                    raise AlignmentError(
+                        f"Reach {(reach.river, reach.reach)!r}: nonnumeric river-station labels require "
+                        "one model-wide source-row orientation proven by numeric reaches; "
+                        f"observed evidence={sorted(proven_directions)!r}.")
+                proven = next(iter(proven_directions))
+                if proven == "DOWNSTREAM_FIRST":
+                    reach.cross_sections.reverse()
+                    reach.source_order_status = "SOURCE_NONNUMERIC_DOWNSTREAM_FIRST_NORMALIZED"
+                else:
+                    reach.source_order_status = "SOURCE_NONNUMERIC_UPSTREAM_FIRST_VERIFIED"
+                normalization = (
+                    "source record order normalized using model-wide numeric-reach evidence; "
+                    "river-station labels retained verbatim")
+                warnings.append(
+                    "Nonnumeric RS labels use source row order verified by consistent numeric reaches in this HDF.")
+            reach.source_order_provenance = {
+                "source_path": str(geom_path),
+                "dataset": "Geometry/Cross Sections/Attributes",
+                "source_indices": source_indices,
+                "source_stations": source_stations,
+                "normalized_indices": [xs.index for xs in reach.cross_sections],
+                "normalized_stations": [xs.rs for xs in reach.cross_sections],
+                "ordering_rule": reach.source_order_status,
+                "normalization": normalization,
+                "warnings": warnings,
+            }
             for index, xs in enumerate(reach.cross_sections):
                 if math.isfinite(xs.length_channel) and xs.length_channel >= 0:
                     continue
@@ -787,18 +1068,18 @@ class HdfReader:
         if not reaches:
             return []
         with h5py.File(self.plan_hdf_path, "r") as f:
-            # Unsteady time series — sample maxima per cross-section across the time axis
-            ut_path = "Results/Unsteady/Output/Output Blocks/Base Output/Unsteady Time Series"
-            sp_path = "Results/Steady/Output/Output Blocks/Base Output/Steady Profiles"
-            if "Results/Unsteady" in f and ut_path in f:
-                return self._read_unsteady_profiles(f, reaches, ut_path)
-            elif "Results/Steady" in f and sp_path in f:
-                return self._read_steady_profiles(f, reaches, sp_path)
-            # Fallback: post-process steady
-            pp_path = "Results/Post Process/Steady/Output/Output Blocks/Base Output/Post Process/Post Process Profiles"
-            if pp_path in f:
-                return self._read_steady_profiles(f, reaches, pp_path + "/Cross Sections", wsel="Water Surface")
-        raise AlignmentError("Unsupported or missing hydraulic result layout: no recognized nonempty steady/unsteady profile dataset. Verify the computed plan HDF and source schema.")
+            adapter = self.schema_adapter
+            if adapter is None:
+                raise AlignmentError(
+                    "Unsupported or missing hydraulic result layout: no verified schema adapter was "
+                    "resolved from combined geometry/result evidence.")
+            if adapter.result_type == "UNSTEADY_SAVED_TIMESTEPS":
+                return self._read_unsteady_profiles(f, reaches, adapter.result_root)
+            if adapter.result_type == "POST_PROCESS_SAVED_TIMESTEPS":
+                return self._read_post_process_profiles(f, reaches, adapter)
+            if adapter.result_type in {"STEADY_PROFILES", "POST_PROCESS_STEADY_PROFILES"}:
+                return self._read_steady_profiles(f, reaches, adapter.cross_section_path)
+        raise AlignmentError(f"Adapter {adapter.name} declares unsupported result type {adapter.result_type!r}.")
 
     def _read_unsteady_profiles(self, f: h5py.File, reaches: list[ReachGeometry], ut_path: str) -> list[ProfileResult]:
         cs = f[ut_path + "/Cross Sections"]
@@ -842,6 +1123,65 @@ class HdfReader:
         profiles.insert(0,ProfileResult(name="Maximum WSEL",wsel=[v["value"] for v in maximum],xs_ids=identities,
             values=maximum,profile_id="unsteady-saved-maximum",source_path=str(self.plan_hdf_path),source_dataset=dataset.name,
             result_type="DERIVED_MAXIMUM_ENVELOPE",time_provenance={**time_info,"rows":[0,T-1],"description":"Per-XS maximum over all saved base-output timesteps; not a simultaneous profile or source-authoritative maximum"}))
+        prepare_profiles(profiles)
+        return profiles
+
+    def _read_post_process_profiles(self, f: h5py.File, reaches: list[ReachGeometry], adapter) -> list[ProfileResult]:
+        """Read the authenticated post-process saved-profile family.
+
+        Row zero in the observed Muncie schema is explicitly named ``Max WS``
+        by HEC-RAS and is retained as a source-authoritative maximum. It is not
+        recomputed from, or conflated with, the following saved time rows.
+        """
+        cs = f[adapter.cross_section_path]
+        dataset = cs.get("Water Surface")
+        if dataset is None:
+            raise AlignmentError(f"{cs.name}: Water Surface dataset is absent.")
+        values = dataset[()]
+        identities, order = self._result_order(f, cs, reaches, values)
+        labels_dataset = f.get(adapter.profile_labels_path)
+        if labels_dataset is None:
+            raise AlignmentError(f"{adapter.profile_labels_path}: required post-process profile identities are absent.")
+        labels = self._string_rows(labels_dataset)
+        if len(labels) != values.shape[0] or not labels or labels[0].strip().upper() != "MAX WS":
+            raise AlignmentError(
+                f"{labels_dataset.name}: expected one label per result row with source 'Max WS' first; "
+                "post-process result meaning is ambiguous.")
+        variable_units = dataset.attrs.get("Variable_Unit")
+        unit_tokens = {_s(value).strip().lower() for value in np.asarray(variable_units).reshape(-1)} \
+            if variable_units is not None else set()
+        expected_unit = "m" if _s(f.attrs.get("Units System", "")).strip().upper() == "SI" else "ft"
+        if expected_unit not in unit_tokens:
+            raise AlignmentError(
+                f"{dataset.name}: WSEL unit metadata must explicitly contain {expected_unit!r}; "
+                f"observed {sorted(token for token in unit_tokens if token)!r}.")
+        dry = [float(value) for key, value in dataset.attrs.items()
+               if key.lower() in ("dry value", "dry_value")]
+        missing = [float(value) for key, value in dataset.attrs.items()
+                   if key.lower() in ("missing_value", "_fillvalue", "missing value")]
+        normalized = [[normalize_value(values[row, column], dry, missing) for column in order]
+                      for row in range(values.shape[0])]
+        sample = list(range(1, values.shape[0], max(1, (values.shape[0] - 1) // 30)))
+        if values.shape[0] > 1 and values.shape[0] - 1 not in sample:
+            sample.append(values.shape[0] - 1)
+        selected_rows = [0, *sample]
+        profiles: list[ProfileResult] = []
+        for row in selected_rows:
+            result_type = "SOURCE_AUTHORITATIVE_MAXIMUM" if row == 0 else "SAVED_TIMESTEP_WSEL"
+            profiles.append(ProfileResult(
+                name="Maximum WSEL" if row == 0 else labels[row],
+                wsel=[item["value"] for item in normalized[row]], xs_ids=identities,
+                values=normalized[row], profile_id=f"post-process-row-{row}",
+                source_path=str(self.plan_hdf_path), source_dataset=dataset.name,
+                result_type=result_type,
+                time_provenance={
+                    "kind": "SOURCE_POST_PROCESS_PROFILE_DATE",
+                    "dataset": labels_dataset.name, "row": row,
+                    "source_label": labels[row], "timezone": "UNKNOWN",
+                    "description": ("HEC-RAS source-authoritative post-process maximum"
+                                    if row == 0 else
+                                    "HEC-RAS post-process saved profile; source date text retained without timezone inference"),
+                }))
         prepare_profiles(profiles)
         return profiles
 
@@ -895,21 +1235,29 @@ class HdfReader:
             raise AlignmentError(f'{dataset.name}: expected a string row array, got {values.shape}. Unsupported source schema.')
         return [_s(value) for value in values]
 
-    @staticmethod
-    def _result_order(f, cs, reaches, values):
+    def _result_order(self, f, cs, reaches, values):
         """Prove a bijection before moving any result column into canonical order."""
         expected = [xs.identity for reach in reaches for xs in reach.cross_sections]
         if values.ndim != 2 or values.shape[0] == 0:
             raise AlignmentError(f"{cs.name}: expected nonempty profile/time by XS results, got {values.shape}.")
         attrs = cs.get("Cross Section Attributes")
-        if attrs is not None:
+        strategy = self.schema_adapter.identity_strategy if self.schema_adapter is not None else None
+        if strategy == "EXPLICIT_RESULT_IDENTITY_DATASET":
+            identity_path = self.schema_adapter.identity_dataset_path if self.schema_adapter is not None else ""
+            attrs = f.get(identity_path)
+            if attrs is None:
+                raise AlignmentError(f"{identity_path}: adapter requires an explicit result identity dataset.")
+        if strategy in {"EXPLICIT_RESULT_CROSS_SECTION_ATTRIBUTES", "EXPLICIT_RESULT_IDENTITY_DATASET"} or (strategy is None and attrs is not None):
+            if attrs is None:
+                raise AlignmentError(f"{cs.name}: adapter requires explicit Cross Section Attributes.")
             records = attrs[()]
             fields = records.dtype.names or ()
             rs_field = "Station" if "Station" in fields else "RS"
             if not {"River", "Reach", rs_field}.issubset(fields):
                 raise AlignmentError(f"{attrs.name}: River, Reach and RS/Station are required to associate results.")
             actual = [xs_identity(r["River"], r["Reach"], r[rs_field]) for r in records]
-        else:
+            self.result_identity_adapter = "RESULT_CROSS_SECTION_ATTRIBUTES"
+        elif strategy == "EXACT_COMBINED_GEOMETRY_INFO_LABEL" or strategy is None:
             # Observed HEC-RAS 5.0.7 steady schema: complete result-column
             # identities, not a positional fallback to geometry attributes.
             path = "Results/Steady/Output/Geometry Info/Cross Section Only"
@@ -927,6 +1275,9 @@ class HdfReader:
                 if label not in labels:
                     raise AlignmentError(f"{path}: result XS {label!r} has no exact geometry identity.")
                 actual.append(labels[label])
+            self.result_identity_adapter = "STEADY_GEOMETRY_INFO_COMBINED_LABELS"
+        else:
+            raise AlignmentError(f"Unsupported result identity strategy {strategy!r}.")
         if len(actual) != values.shape[1] or len(set(actual)) != len(actual):
             raise AlignmentError(f"{cs.name}: result identity count/duplicates do not match {values.shape[1]} WSEL columns.")
         missing, extra = set(expected) - set(actual), set(actual) - set(expected)
@@ -966,7 +1317,11 @@ def plan_to_dict(p: Plan) -> dict[str, Any]:
         "flow_type": p.flow_type,
         "reaches": [reach_to_dict(r) for r in p.reaches],
         "profiles": [{**asdict(pr),"display_name":pr.name + (" (derived saved-timestep envelope)" if pr.result_type=="DERIVED_MAXIMUM_ENVELOPE" else "")} for pr in p.profiles],
-        "source_units": p.source_units, "source_datum":p.source_datum,
+        "source_units": p.source_units, "working_units": p.working_units,
+        "unit_contract": dict(p.unit_contract),
+        "unit_conversion_status": p.unit_conversion_status,
+        "schema_adapter": dict(p.schema_adapter),
+        "source_datum":p.source_datum,
         "model_id": getattr(p, "model_id", ""), "ras_version": getattr(p, "ras_version", "UNKNOWN"),
         "capabilities": p.capabilities.to_dict() if getattr(p, "capabilities", None) else None,
         "topology": p.topology.to_dict() if getattr(p, "topology", None) else None,

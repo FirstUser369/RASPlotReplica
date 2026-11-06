@@ -29,6 +29,12 @@ def expire_previous_artifacts():
     cleanup_previous_artifacts()
 
 
+@app.on_event('shutdown')
+def cancel_unfinished_exports():
+    from .core.export_jobs import cancel_active_export_jobs
+    cancel_active_export_jobs()
+
+
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from .core.errors import error_code, log

@@ -7,6 +7,7 @@ from __future__ import annotations
 from .hydraulics import prepare_profiles, normalize_value
 
 import math
+from bisect import bisect_left, bisect_right
 from copy import deepcopy
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -126,6 +127,8 @@ class WorkingRow:
     ground_provenance: dict = field(default_factory=dict)
     source_identity: str = ""       # stable model/source identity for ordinary XS
     row_identity: str = ""          # stable identity for XS and synthetic structure rows
+    source_order_index: Optional[int] = None
+    source_order_rule: str = ""
 
 
 @dataclass
@@ -256,10 +259,15 @@ class RasplotDatabase:
     frequencies: list[dict[str, Any]] = field(default_factory=lambda: deepcopy(DEFAULT_FREQUENCIES))
     use_node_names: bool = False
     source_units: str = "INTERNAL_US_CUSTOMARY"
+    working_units: str = "INTERNAL_US_CUSTOMARY"
+    unit_contract: dict[str, str] = field(default_factory=dict)
+    unit_conversion_status: str = "LEGACY_US_VALIDATED"
     stationing_start: float = 0.0
     stationing_signature: str = ""
     panel_signature: str = ""
     panel_review_state: str = "UNSPECIFIED"
+    panel_review_dependencies: dict[str, str] = field(default_factory=dict)
+    panel_review_snapshots: dict = field(default_factory=dict)
     structure_inventory: dict = field(default_factory=lambda: {"state": "VERIFIED_NONE"})
     flooding_source: dict = field(default_factory=dict)
     distance_ledger: dict = field(default_factory=dict)
@@ -267,7 +275,7 @@ class RasplotDatabase:
     next_landmark_id: int = 1
 
     def to_dict(self) -> dict:
-        from .state_contract import stationing_dirty, panels_stale, engineering_version
+        from .state_contract import stationing_dirty, panels_stale, panel_stale_reasons, engineering_version
         inventory = dict(self.structure_inventory)
         inventory['classification'] = {
             'VERIFIED_NONE': 'VERIFIED_NO_STRUCTURES',
@@ -282,11 +290,15 @@ class RasplotDatabase:
             "engineering_version": engineering_version(self),
             "stationing_dirty": stationing_dirty(self),
             "panels_stale": panels_stale(self),
+            "panel_stale_reasons": panel_stale_reasons(self),
             "panel_review_state": self.panel_review_state,
             "structure_inventory": inventory,
             "flooding_source": deepcopy(self.flooding_source),
             "distance_ledger": deepcopy(self.distance_ledger),
             "source_units": self.source_units,
+            "working_units": self.working_units,
+            "unit_contract": deepcopy(self.unit_contract),
+            "unit_conversion_status": self.unit_conversion_status,
             "working": [asdict(r) for r in self.working],
             "structures": [m.to_dict() for m in models_from_rows(self.working)],
             "profiles": [asdict(p) for p in self.profiles],
@@ -380,6 +392,9 @@ def build_working_from_plan(
     prepare_profiles(plan.profiles)
     profile_names = [p.key for p in plan.profiles]
     profile_values_by_id = {p.key: p.values_by_identity() for p in plan.profiles}
+    profile_details_by_id = {
+        p.key: dict(zip(p.xs_ids, p.values)) for p in plan.profiles
+    }
     from .hdf_reader import AlignmentError
     from .model_topology import stable_id
     model_id = getattr(plan, "model_id", "") or str(getattr(plan, "plan_path", "UNKNOWN"))
@@ -398,10 +413,15 @@ def build_working_from_plan(
             cumdist=cumdist[i], minchel=xs.minchel,
             profiles={p.key: profile_values_by_id[p.key][xs.identity] for p in plan.profiles},
             raw_profiles={p.profile_id: profile_values_by_id[p.key][xs.identity] for p in plan.profiles},
-            hydraulic_values={p.profile_id:{**deepcopy(p.values[p.xs_ids.index(xs.identity)]),"profile_id":p.profile_id,"profile_key":p.key,"xs_identity":xs.identity,"source_path":p.source_path,"source_dataset":p.source_dataset,"result_type":p.result_type,"provenance":"SOURCE" if p.result_type!="DERIVED_MAXIMUM_ENVELOPE" else "DERIVED"} for p in plan.profiles},
+            # Hydraulic detail records contain source scalars only. A shallow
+            # copy gives each working row independent mutable provenance while
+            # avoiding a deep-copy traversal for every XS/profile pair.
+            hydraulic_values={p.profile_id:{**profile_details_by_id[p.key][xs.identity],"profile_id":p.profile_id,"profile_key":p.key,"xs_identity":xs.identity,"source_path":p.source_path,"source_dataset":p.source_dataset,"result_type":p.result_type,"provenance":"SOURCE" if p.result_type!="DERIVED_MAXIMUM_ENVELOPE" else "DERIVED"} for p in plan.profiles},
             ground_provenance=deepcopy(xs.ground_provenance),
             kind="xs", source_xs_index=i, canonical_length_chnl=xs.length_channel,
             source_length_chnl=xs.length_channel,
+            source_order_index=i,
+            source_order_rule=getattr(reach, "source_order_status", "UNKNOWN"),
             source_identity=stable_id("xs", model_id, xs.river, xs.reach, xs.rs),
             row_identity=stable_id("xs", model_id, xs.river, xs.reach, xs.rs),
         ))
@@ -409,6 +429,13 @@ def build_working_from_plan(
     models = normalize(sources, xs_rows, profile_names, linked_text(plan))
     rows = []
     pending = list(models)
+    structures_by_upstream: dict[tuple[str, str, str], list[StructureModel]] = {}
+    unlinked_structures: list[StructureModel] = []
+    for model in pending:
+        if model.upstream is None:
+            unlinked_structures.append(model)
+        else:
+            structures_by_upstream.setdefault(model.upstream, []).append(model)
 
     def append_structure(model):
         # Unsupported records are retained, not assigned nearest-XS geometry.
@@ -431,12 +458,13 @@ def build_working_from_plan(
             ))
     for xs in xs_rows:
         rows.append(xs)
-        for model in list(pending):
-            if model.upstream == (xs.river,xs.reach,xs.rs):
-                append_structure(model)
-                pending.remove(model)
-    for model in pending:
+        for model in structures_by_upstream.pop((xs.river, xs.reach, xs.rs), ()):
+            append_structure(model)
+    for model in unlinked_structures:
         append_structure(model)
+    for remaining in structures_by_upstream.values():
+        for model in remaining:
+            append_structure(model)
     for i,row in enumerate(rows,1):
         row.id=i
     sync_rows(rows)
@@ -507,11 +535,24 @@ def recalc_cumdist(rows: list[WorkingRow], start: float = 0.0) -> list[WorkingRo
     from .merge import compute_cumdist_from_lengths
     from .hdf_reader import xs_identity, station_number, AlignmentError
     keys = [xs_identity(row.river, row.reach, row.rs) for row in xs_rows]
-    stations = [station_number(row.rs) for row in xs_rows]
     if len({key[:2] for key in keys}) != 1:
         raise AlignmentError("Continuous multi-reach recalculation requires verified junction topology; unsupported.")
-    if len(set(keys)) != len(keys) or any(a <= b for a, b in zip(stations, stations[1:])):
-        raise AlignmentError("Working XS require unique, strictly upstream-first river stations.")
+    if len(set(keys)) != len(keys):
+        raise AlignmentError("Working XS require unique source identities.")
+    try:
+        stations = [station_number(row.rs) for row in xs_rows]
+    except AlignmentError:
+        supported = {
+            "SOURCE_NONNUMERIC_UPSTREAM_FIRST_VERIFIED",
+            "SOURCE_NONNUMERIC_DOWNSTREAM_FIRST_NORMALIZED",
+        }
+        if (not all(row.source_order_rule in supported for row in xs_rows)
+                or [row.source_order_index for row in xs_rows] != list(range(len(xs_rows)))):
+            raise AlignmentError(
+                "Working XS with nonnumeric labels require unchanged verified source ordering.")
+    else:
+        if any(a <= b for a, b in zip(stations, stations[1:])):
+            raise AlignmentError("Working XS require strictly upstream-first river stations.")
 
     cumdist = compute_cumdist_from_lengths(
         [row.length_chnl for row in xs_rows],
@@ -532,6 +573,34 @@ def recalc_cumdist(rows: list[WorkingRow], start: float = 0.0) -> list[WorkingRo
     sync_rows(rows)
 
     return rows
+
+
+def detect_drawdowns(rows: list[WorkingRow], profile_names: list[str] | None = None) -> list[dict]:
+    """Report Fix Drawdowns candidates without changing working hydraulic values."""
+    xs = [row for row in rows if row.kind == "xs"]
+    if not xs:
+        return []
+    names = profile_names or list(xs[0].profiles.keys())
+    findings: list[dict] = []
+    for name in names:
+        carried: Optional[float] = None
+        for row in reversed(xs):
+            value = row.profiles.get(name)
+            if value is None:
+                carried = None
+            elif carried is None:
+                carried = value
+            elif value < carried:
+                findings.append({
+                    "xs_identity": row.source_identity,
+                    "profile_key": name,
+                    "working_value": value,
+                    "qualifying_level": carried,
+                    "reason": "UPSTREAM_BELOW_CARRIED_DOWNSTREAM_WSEL",
+                })
+            else:
+                carried = value
+    return findings
 
 
 def fix_drawdowns(rows: list[WorkingRow], profile_names: list[str] | None = None) -> list[WorkingRow]:
@@ -622,42 +691,55 @@ def auto_panels(
                        for key in keys])
         return series
 
-    series = profile_series()
+    # Pre-index finite runs once. Panel splitting calls elevations_between many
+    # times; rescanning every XS/profile for each binary-search probe is
+    # quadratic for long routes.
+    indexed_runs: list[tuple[list[float], list[float]]] = []
+    for points in profile_series():
+        run_x: list[float] = []
+        run_y: list[float] = []
+        for station, value in points:
+            if value is None:
+                if run_x:
+                    indexed_runs.append((run_x, run_y))
+                    run_x, run_y = [], []
+                continue
+            value = float(value)
+            if not math.isfinite(value):
+                raise ValueError("Panel elevations must be finite; resolve invalid ground or hydraulic values before Panel Setup.")
+            run_x.append(float(station))
+            run_y.append(value)
+        if run_x:
+            indexed_runs.append((run_x, run_y))
+    structure_stations: list[float] = []
+    structure_elevations: list[tuple[float, ...]] = []
+    for row in sorted((item for item in rows if item.kind != "xs" and item.cumdist is not None),
+                      key=lambda item: float(item.cumdist)):
+        values = tuple(float(value) for value in (row.minchel, row.low_chord, row.high_chord)
+                       if value is not None)
+        if any(not math.isfinite(value) for value in values):
+            raise ValueError("Panel elevations must be finite; resolve invalid structure geometry before Panel Setup.")
+        structure_stations.append(float(row.cumdist))
+        structure_elevations.append(values)
 
     def elevations_between(lo: float, hi: float) -> list[float]:
         """Values and linearly clipped endpoints inside a continuous interval."""
         values: list[float] = []
-        for points in series:
-            run: list[tuple[float, float]] = []
-            runs: list[list[tuple[float, float]]] = []
-            for station, value in points:
-                if value is None:
-                    if run:
-                        runs.append(run)
-                        run = []
-                    continue
-                value = float(value)
-                if not math.isfinite(value):
-                    raise ValueError("Panel elevations must be finite; resolve invalid ground or hydraulic values before Panel Setup.")
-                run.append((station, value))
-            if run:
-                runs.append(run)
-            for segment in runs:
-                values.extend(value for station, value in segment if lo <= station <= hi)
-                for boundary in (lo, hi):
-                    for (x0, y0), (x1, y1) in zip(segment, segment[1:]):
-                        if x0 < boundary < x1:
-                            ratio = (boundary - x0) / (x1 - x0)
-                            values.append(y0 + ratio * (y1 - y0))
-                            break
-        for row in rows:
-            if row.kind != "xs" and row.cumdist is not None and lo <= row.cumdist <= hi:
-                for value in (row.minchel, row.low_chord, row.high_chord):
-                    if value is not None:
-                        value = float(value)
-                        if not math.isfinite(value):
-                            raise ValueError("Panel elevations must be finite; resolve invalid structure geometry before Panel Setup.")
-                        values.append(value)
+        for stations, elevations in indexed_runs:
+            left, right = bisect_left(stations, lo), bisect_right(stations, hi)
+            values.extend(elevations[left:right])
+            for boundary in (lo, hi):
+                insertion = bisect_left(stations, boundary)
+                if 0 < insertion < len(stations) and stations[insertion] != boundary:
+                    x0, x1 = stations[insertion - 1], stations[insertion]
+                    if x0 < boundary < x1:
+                        ratio = (boundary - x0) / (x1 - x0)
+                        values.append(elevations[insertion - 1] + ratio *
+                                      (elevations[insertion] - elevations[insertion - 1]))
+        left = bisect_left(structure_stations, lo)
+        right = bisect_right(structure_stations, hi)
+        for item in structure_elevations[left:right]:
+            values.extend(item)
         return values
 
     all_elevations = elevations_between(x_min, x_max)
@@ -769,12 +851,18 @@ def build_db_from_plan(
     db = RasplotDatabase(header=header or WorkHeader())
     db.structure_inventory=deepcopy(getattr(plan,"structure_inventory",{"state":"VERIFIED_NONE"}))
     db.source_units=getattr(plan,"source_units","INTERNAL_US_CUSTOMARY")
+    db.working_units=getattr(plan,"working_units","INTERNAL_US_CUSTOMARY")
+    db.unit_contract=deepcopy(getattr(plan,"unit_contract",{}))
+    db.unit_conversion_status=getattr(plan,"unit_conversion_status","LEGACY_US_VALIDATED")
     db.header.source_datum=getattr(plan,"source_datum","UNKNOWN")
     if db.header.source_datum!="UNKNOWN" and db.header.datum_provenance!="USER_ENTERED":
         db.header.vertical_datum=db.header.source_datum
         db.header.datum_provenance="SOURCE"
+    # Letters are a reviewer-authored drawing decision.  A newly opened model
+    # starts without generated letters; saved-project restoration reapplies its
+    # durable label overrides and the explicit Auto Letters action remains
+    # available to users who want generated labels.
     working = build_working_from_plan(plan, reach_idx=reach_idx, cumdist=cumdist)
-    working = auto_letter(working, every=5)
     db.working = working
     db.next_id = (max((r.id for r in working), default=0) + 1)
 

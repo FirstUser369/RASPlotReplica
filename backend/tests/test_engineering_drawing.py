@@ -3,7 +3,8 @@ from dataclasses import FrozenInstanceError
 
 from backend.app.core.engineering_drawing import (
     DrawingBuildConfig, EngineeringBounds, EngineeringPoint,
-    build_engineering_drawing, engineering_to_dxf_inches,
+    DrawingAnnotation, _annotation_collision_warnings,
+    annotation_warnings_for_panel, build_engineering_drawing, engineering_to_dxf_inches,
     engineering_to_pdf_points, raster_affine,
 )
 from backend.app.core.rasplot_db import Landmark, PanelDef, ProfileMeta, RasplotDatabase, WorkingRow
@@ -112,7 +113,7 @@ class EngineeringDrawingDefinitionTests(unittest.TestCase):
         self.assertEqual(annotations["Horizontal note"].anchor, EngineeringPoint(125.0, 15.0))
         self.assertEqual(annotations["Horizontal note"].rotation_degrees, 0.0)
 
-    def test_annotation_collision_warnings_are_deterministic(self):
+    def test_annotation_placement_is_deterministic_and_preserves_source_anchors(self):
         db = database()
         db.landmarks = [
             Landmark(1, 100.0, 15.0, "First"),
@@ -123,7 +124,57 @@ class EngineeringDrawingDefinitionTests(unittest.TestCase):
         second = build_engineering_drawing(db, [panel], revision=(0.0, 200.0))
         self.assertEqual(first.presentation.annotation_warnings,
                          second.presentation.annotation_warnings)
-        self.assertTrue(first.presentation.annotation_warnings)
+        self.assertEqual(first.presentation.annotation_warnings, ())
+        first_annotations = {item.identity: item for item in first.panels[0].annotations}
+        second_annotations = {item.identity: item for item in second.panels[0].annotations}
+        self.assertEqual(first_annotations, second_annotations)
+        self.assertEqual(
+            {item.anchor for item in first_annotations.values() if item.text},
+            {EngineeringPoint(100.0, 15.0)},
+        )
+        moved = [item for item in first_annotations.values() if item.leader_required]
+        self.assertEqual(len(moved), 1)
+        self.assertIsNotNone(moved[0].display_anchor)
+
+    def test_unresolvable_annotation_collision_remains_an_explicit_warning(self):
+        db = database()
+        label = "Label too wide for this intentionally narrow plotting area " * 3
+        db.landmarks = [
+            Landmark(1, 100.0, 10.0, label + " A", orientation="Horizontal"),
+            Landmark(2, 100.0, 10.0, label + " B", orientation="Horizontal"),
+        ]
+        panel = PanelDef(6, 0.0, 200.0, 0.0, 20.0,
+                         h_scale=50.0, v_scale=5.0)
+        drawing = build_engineering_drawing(db, [panel], revision=(0.0, 200.0))
+        self.assertEqual(len(drawing.presentation.annotation_warnings), 1)
+        self.assertIn("Potential annotation collision in panel 6",
+                      drawing.presentation.annotation_warnings[0])
+
+    def test_empty_cross_section_markers_are_not_text_collision_warnings(self):
+        panel = PanelDef(1, 0.0, 100.0, 0.0, 20.0, h_scale=50.0, v_scale=5.0)
+        markers = [
+            DrawingAnnotation("xs-a", "CROSS_SECTION_LOCATION", "",
+                              EngineeringPoint(50.0, 10.0), 0.0, "SOURCE", "REVIEWED"),
+            DrawingAnnotation("xs-b", "CROSS_SECTION_LOCATION", "",
+                              EngineeringPoint(50.0, 10.0), 0.0, "SOURCE", "REVIEWED"),
+        ]
+        self.assertEqual(_annotation_collision_warnings(markers, panel), ())
+        labels = [
+            DrawingAnnotation("xs-a", "CROSS_SECTION", "A",
+                              EngineeringPoint(50.0, 10.0), 0.0, "SOURCE", "REVIEWED"),
+            DrawingAnnotation("xs-b", "CROSS_SECTION", "B",
+                              EngineeringPoint(50.0, 10.0), 0.0, "SOURCE", "REVIEWED"),
+        ]
+        self.assertEqual(len(_annotation_collision_warnings(labels, panel)), 1)
+
+    def test_collision_warnings_are_scoped_to_their_rendered_panel(self):
+        warnings = (
+            "Potential annotation collision in panel 1: a and b.",
+            "Potential annotation collision in panel 12: c and d.",
+        )
+        self.assertEqual(annotation_warnings_for_panel(warnings, 1), (warnings[0],))
+        self.assertEqual(annotation_warnings_for_panel(warnings, 2), ())
+        self.assertEqual(annotation_warnings_for_panel(warnings, 12), (warnings[1],))
 
     def test_pdf_and_engineering_dxf_transforms_preserve_fixed_scale(self):
         db = database()
@@ -205,6 +256,33 @@ class EngineeringDrawingDefinitionTests(unittest.TestCase):
         self.assertEqual(db.to_dict(), before)
         self.assertEqual(drawing.panels[0].panel_id, 42)
         self.assertEqual(drawing.panels[0].display_id, "42")
+
+    def test_reviewer_structure_name_changes_annotation_not_source_geometry(self):
+        from backend.tests.test_structures import bridge, database as structure_database
+        _, db = structure_database([bridge()])
+        structure_model = next(
+            row.structure_model for row in db.working if row.kind == "struct")
+        source_geometry = [
+            (face["station"], face["low_chord"], face["high_chord"])
+            for face in structure_model.faces]
+        for row in db.working:
+            if row.kind == "struct":
+                row.label_text = "Reviewer crossing"
+        panel = PanelDef(1, 0.0, 50.0, 0.0, 25.0, h_scale=50.0, v_scale=5.0)
+        drawing = build_engineering_drawing(db, [panel], revision=(0.0, 50.0))
+        annotation = next(item for item in drawing.panels[0].annotations
+                          if item.kind == "STRUCTURE")
+        self.assertEqual(sum(item.kind == "STRUCTURE"
+                             for item in drawing.panels[0].annotations), 1)
+        self.assertEqual(
+            [(line.points[0].x, line.points[0].y, line.points[1].y)
+             for line in drawing.panels[0].polylines if line.kind == "STRUCTURE_FACE"],
+            source_geometry)
+        self.assertIn("Reviewer crossing", annotation.text)
+        self.assertEqual(annotation.anchor, EngineeringPoint(40.0, 22.0))
+        self.assertEqual(
+            annotation.provenance,
+            "USER_ENTERED_STRUCTURE_NAME_WITH_VALIDATED_SOURCE_GEOMETRY")
 
 
 if __name__ == "__main__":

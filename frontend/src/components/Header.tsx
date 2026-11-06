@@ -52,9 +52,9 @@ export default function Header({ onOpen, onOpenProject, onSaveProject, busy, ses
         />
         <button className="button button--secondary" disabled={busy || browsing} onClick={browse}>{browsing ? "Browsing…" : "Browse…"}</button>
         <button className="button button--primary" disabled={busy || browsing || !path} onClick={() => onOpen(path)}>
-          {busy ? "Loading…" : "Open"}
+          {busy ? "Loading…" : "Open HEC-RAS Model"}
         </button>
-        <button className="button button--secondary" disabled={busy || browsing} onClick={onOpenProject}>Open Project…</button>
+        <button className="button button--secondary" disabled={busy || browsing} onClick={onOpenProject}>Open Saved RAS-Plot Project…</button>
         <button className="button button--secondary" disabled={busy || !session} onClick={() => onSaveProject(false)}>Save</button>
         <button className="button button--quiet" disabled={busy || !session} onClick={() => onSaveProject(true)}>Save As…</button>
       </div></div>

@@ -48,12 +48,13 @@ class OwnedDownload(FileResponse):
 
 
 def require_artifact_capacity(sid):
-    cleanup_artifacts()
-    cleanup_previous_artifacts()
-    if len(ARTIFACTS) >= 2048:
-        raise HTTPException(409, 'Local retained export capacity reached. Existing artifacts expire after 24 hours; save required downloads before restarting.')
-    if sum(owner == sid for owner, _ in ARTIFACTS.values()) >= ARTIFACT_LIMIT:
-        raise HTTPException(409, 'This session has reached 256 retained exports. Start a new session; existing downloads remain valid until expiry.')
+    with STATE_LOCK:
+        cleanup_artifacts()
+        cleanup_previous_artifacts()
+        if len(ARTIFACTS) >= 2048:
+            raise HTTPException(409, 'Local retained export capacity reached. Existing artifacts expire after 24 hours; save required downloads before restarting.')
+        if sum(owner == sid for owner, _ in ARTIFACTS.values()) >= ARTIFACT_LIMIT:
+            raise HTTPException(409, 'This session has reached 256 retained exports. Start a new session; existing downloads remain valid until expiry.')
 
 
 class LocalRoute(APIRoute):
@@ -144,24 +145,26 @@ def register_artifact(sid, path):
         candidate.relative_to(cache_root() / sid)
     except ValueError:
         raise HTTPException(400, "Artifact path outside its session directory")
-    cleanup_artifacts()
-    # Only this marker authorizes later cleanup after a process restart.
-    marker = candidate.with_name(candidate.name + '.rasplot-artifact.json')
-    marker.write_text(json.dumps({'sid': sid, 'file': candidate.name, 'created': time.time()}), encoding='utf-8')
-    ARTIFACTS[str(candidate)] = (sid, time.time())
+    with STATE_LOCK:
+        cleanup_artifacts()
+        # Only this marker authorizes later cleanup after a process restart.
+        marker = candidate.with_name(candidate.name + '.rasplot-artifact.json')
+        marker.write_text(json.dumps({'sid': sid, 'file': candidate.name, 'created': time.time()}), encoding='utf-8')
+        ARTIFACTS[str(candidate)] = (sid, time.time())
 
 
 def discard_failed_artifact(sid, path):
     if not path:
         return
     candidate = Path(path).resolve()
-    try:
-        candidate.relative_to(cache_root() / sid)
-        candidate.unlink(missing_ok=True)
-        candidate.with_name(candidate.name + '.rasplot-artifact.json').unlink(missing_ok=True)
-        ARTIFACTS.pop(str(candidate), None)
-    except (ValueError, OSError):
-        pass
+    with STATE_LOCK:
+        try:
+            candidate.relative_to(cache_root() / sid)
+            candidate.unlink(missing_ok=True)
+            candidate.with_name(candidate.name + '.rasplot-artifact.json').unlink(missing_ok=True)
+            ARTIFACTS.pop(str(candidate), None)
+        except (ValueError, OSError):
+            pass
 
 
 def cleanup_artifacts():

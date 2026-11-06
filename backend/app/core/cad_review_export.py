@@ -17,7 +17,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from ezdxf.enums import TextEntityAlignment
 
-from .engineering_drawing import DrawingBuildConfig, build_engineering_drawing
+from .engineering_drawing import (
+    DrawingBuildConfig, annotation_text_anchor, build_engineering_drawing,
+)
 from .dxf_export import _hex_to_aci
 
 
@@ -118,6 +120,7 @@ def _write_dxf(path: Path, drawing, drawing_panel, bounds: CadReviewBounds) -> N
         "STRUCTURE_LABEL": 7,
         "PROFILE_LABELS": 7,
         "PANEL_METADATA": 7,
+        "ANNOTATION_LEADERS": 8,
     }
     for layer, color in layers.items():
         if layer not in doc.layers:
@@ -133,6 +136,8 @@ def _write_dxf(path: Path, drawing, drawing_panel, bounds: CadReviewBounds) -> N
     text_height = max((bounds.y_max - bounds.y_min) / 90.0, 0.01)
     for annotation in annotations:
         x, y = annotation.anchor.x, annotation.anchor.y
+        text_anchor = annotation_text_anchor(annotation)
+        text_x, text_y = text_anchor.x, text_anchor.y
         if annotation.kind == "CROSS_SECTION":
             msp.add_point((x, y), dxfattribs={"layer": "CROSS_SECTIONS"})
             layer = "XS_LABEL"
@@ -155,11 +160,13 @@ def _write_dxf(path: Path, drawing, drawing_panel, bounds: CadReviewBounds) -> N
                 doc.layers.add(layer, color=7)
         if not annotation.text:
             continue
+        if annotation.leader_required:
+            _add_polyline(msp, [(x, y), (text_x, text_y)], "ANNOTATION_LEADERS", 8)
         msp.add_text(
             str(annotation.text),
             dxfattribs={"layer": layer, "height": text_height,
                         "rotation": annotation.rotation_degrees},
-        ).set_placement((x, y), align=alignment)
+        ).set_placement((text_x, text_y), align=alignment)
 
     for label, x, y, right_aligned in _profile_labels(drawing, drawing_panel):
         alignment = TextEntityAlignment.RIGHT if right_aligned else TextEntityAlignment.LEFT
@@ -209,6 +216,8 @@ def _write_png(path: Path, drawing, drawing_panel, bounds: CadReviewBounds,
 
     for annotation in annotations:
         x, y = annotation.anchor.x, annotation.anchor.y
+        text_anchor = annotation_text_anchor(annotation)
+        text_x, text_y = text_anchor.x, text_anchor.y
         if annotation.kind == "BACKWATER" and bounds.y_min <= y <= bounds.y_max:
             ax.plot([bounds.x_min, bounds.x_max], [y, y], color="red",
                     linewidth=0.8, zorder=2, clip_on=True)
@@ -217,7 +226,10 @@ def _write_png(path: Path, drawing, drawing_panel, bounds: CadReviewBounds,
         if annotation.kind == "CROSS_SECTION":
             ax.plot([x], [y], marker="o", color="black", markersize=2,
                     linestyle="none", zorder=3, clip_on=True)
-        ax.text(x, y, annotation.text, fontsize=6,
+        if annotation.leader_required:
+            ax.plot([x, text_x], [y, text_y], color="#555555", linewidth=0.45,
+                    zorder=3, clip_on=True)
+        ax.text(text_x, text_y, annotation.text, fontsize=6,
                 rotation=annotation.rotation_degrees,
                 ha="center" if annotation.kind == "CROSS_SECTION" else "left",
                 va="bottom", color="red" if annotation.kind == "BACKWATER" else "black",
@@ -241,12 +253,19 @@ def export_cad_review_package(
     panel,
     revision: tuple[float, float],
     drawing_config: DrawingBuildConfig | None = None,
+    status_callback=None,
+    cancel_check=None,
 ) -> dict:
     """Write aligned R12 DXF, PNG and PGW from one already-validated snapshot."""
+    status_callback = status_callback or (lambda _stage, _message: None)
+    cancel_check = cancel_check or (lambda: None)
     out_path = Path(out_path)
+    status_callback("DRAWING_DEFINITION", "Building the immutable engineering drawing definition.")
+    cancel_check()
     drawing = build_engineering_drawing(
         db, [panel], [profile.profile_id for profile in selected],
-        revision=revision, page_size=db.header.page_size, config=drawing_config)
+        revision=revision, page_size=db.header.page_size, config=drawing_config,
+        cancel_check=cancel_check)
     drawing_panel = drawing.panels[0]
     bounds = CadReviewBounds(
         drawing_panel.clip_bounds.x_min, drawing_panel.clip_bounds.x_max,
@@ -254,11 +273,17 @@ def export_cad_review_package(
     width, height = bounds.raster_size(panel.h_scale, panel.v_scale)
     stem = f"CAD_Review_Panel_{panel.panel}"
     with tempfile.TemporaryDirectory(prefix="rasplot-cad-review-") as directory:
+        status_callback("RENDERING", "Rendering aligned CAD Review DXF and PNG files.")
+        cancel_check()
         root = Path(directory)
         dxf_path, png_path, pgw_path = (root / f"{stem}.{suffix}" for suffix in ("dxf", "png", "pgw"))
         _write_dxf(dxf_path, drawing, drawing_panel, bounds)
+        cancel_check()
         _write_png(png_path, drawing, drawing_panel, bounds, width, height)
+        cancel_check()
         pgw_path.write_text(bounds.world_file(width, height), encoding="ascii", newline="\n")
+        status_callback("WRITING", "Writing the CAD Review package.")
+        cancel_check()
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in (dxf_path, png_path, pgw_path):
                 archive.write(path, path.name)

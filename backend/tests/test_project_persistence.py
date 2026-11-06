@@ -172,6 +172,25 @@ class ProjectPersistenceFoundationTests(unittest.TestCase):
         document = deserialize_project_document(json.dumps(raw))
         self.assertEqual(document.panel_set.panels[0].panel_suffix, "")
 
+    def test_si_document_requires_and_round_trips_explicit_unit_manifest(self):
+        raw = extend_document(valid_document())
+        raw["source"]["semantic_identity"]["unit_system"] = "SI"
+        with self.assertRaisesRegex(ProjectFileError, "unit manifest"):
+            deserialize_project_document(json.dumps(raw))
+        raw["engineering_units"] = {
+            "contract_version": "rasplot-length-units-v1",
+            "source_system": "SI", "source_length_unit": "m",
+            "working_length_unit": "ft", "paper_length_unit": "paper_in",
+        }
+        document = deserialize_project_document(json.dumps(raw))
+        self.assertEqual(document.engineering_units.source_length_unit, "m")
+        self.assertEqual(deserialize_project_document(serialize_project_document(document)), document)
+
+    def test_legacy_us_document_remains_valid_without_unit_manifest(self):
+        raw = extend_document(valid_document())
+        document = deserialize_project_document(json.dumps(raw))
+        self.assertIsNone(document.engineering_units)
+
     def test_schema_version_unknown_fields_and_corrupt_json_are_rejected(self):
         raw = valid_document()
         raw["schema_version"] = 2

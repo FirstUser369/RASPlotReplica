@@ -32,6 +32,18 @@ const single = {...inventory, reaches:[reach('only','Solo','Only')], junctions:[
 assert.equal(model.localPathStatus(single, ['only']).ready, true);
 assert.equal(model.overviewCounts(single).reaches, 1);
 
+const workspaceSource = require('node:fs').readFileSync(path.resolve(__dirname, '..', 'src', 'components', 'ModelWorkspace.tsx'), 'utf8');
+assert.match(workspaceSource, /\[inventory\.model_context\.model_id, sessionId, generation\]/,
+  'same-model reopen must reset Flooding Source Builder draft state for the new session');
+assert.match(workspaceSource, /workflow_capabilities/);
+assert.match(workspaceSource, /Affects:/);
+assert.match(workspaceSource, /source → canonical working ft/);
+assert.match(workspaceSource, /Open the model to verify and apply the canonical engineering-unit contract/);
+const chartSource = require('node:fs').readFileSync(path.resolve(__dirname, '..', 'src', 'components', 'ProfileChart.tsx'), 'utf8');
+assert.match(chartSource, /working ft/);
+const profileTableSource = require('node:fs').readFileSync(path.resolve(__dirname, '..', 'src', 'components', 'ProfileTable.tsx'), 'utf8');
+assert.match(profileTableSource, /Source \/ Working \(working ft\)/);
+
 const link = (id, upstream, downstream) => ({id,junction_id:`j-${id}`,upstream_reach_id:upstream,downstream_reach_id:downstream,upstream_component:1,downstream_component:1,transition_distance:2,status:'SUPPORTED',provenance:{}});
 const linear = {
   ...inventory,
@@ -111,4 +123,4 @@ assert.equal(workflow.engineeringPresentation(false, null).allowOriginalReachSel
 assert.equal(workflow.activeReachContext(null, {reaches:[{river:'River',reach:'Reach'}]}, 0).label, 'River / Reach');
 assert.equal(workflow.profileTableVisible(false, workingProfile), false);
 assert.equal(workflow.profileTableVisible(true, null), false);
-console.log('PASS: 30 Phase 6 workspace, identity, and workflow-state contracts');
+console.log('PASS: 31 Phase 6 workspace, identity, and workflow-state contracts');

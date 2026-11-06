@@ -115,6 +115,8 @@ class CanonicalCumdistTests(unittest.TestCase):
 class MuncieIntegrationTests(unittest.TestCase):
     def test_muncie_endpoint_metadata_and_profile_values(self):
         plan = HdfReader(MUNCIE_HDF).read_plan()
+        self.assertEqual(plan.capabilities.schema_adapter,
+                         "UNSTEADY_BASE_OUTPUT_EXPLICIT_XS_V1")
         reach = plan.reaches[0]
         rows = build_working_from_plan(plan)
         xs_rows = [row for row in rows if row.kind == "xs"]
@@ -168,6 +170,8 @@ class MuncieIntegrationTests(unittest.TestCase):
             self.assertEqual(caught.exception.status_code,400)
             self.assertIn("LATERAL",caught.exception.detail)
             self.assertIn("White / Muncie",caught.exception.detail)
+            self.assertIn("RS 13214",caught.exception.detail)
+            self.assertIn("RS 7300",caught.exception.detail)
 
 
 
@@ -175,6 +179,8 @@ class MuncieIntegrationTests(unittest.TestCase):
 class NorthCulvertIntegrationTests(unittest.TestCase):
     def test_canonical_interval_partition_and_recalculation(self):
         plan = HdfReader(NORTH_HDF).read_plan()
+        self.assertEqual(plan.capabilities.schema_adapter,
+                         "STEADY_BASE_OUTPUT_GEOMETRY_INFO_LABELS_V1")
         rows = build_working_from_plan(plan)
         xs_rows = [row for row in rows if row.kind == "xs"]
         by_rs = {row.rs: row for row in xs_rows}
@@ -210,7 +216,7 @@ class NorthCulvertIntegrationTests(unittest.TestCase):
         plotted_structure_x = []
         original_text = Axes.text
         def capture_text(axis, x, y, text, *args, **kwargs):
-            if str(text).startswith("CULVERT-"):
+            if str(text).startswith("CULVERT"):
                 plotted_structure_x.append(float(x))
             return original_text(axis, x, y, text, *args, **kwargs)
         with patch.object(Axes, "text", new=capture_text):
@@ -218,9 +224,9 @@ class NorthCulvertIntegrationTests(unittest.TestCase):
                 session_id=sid, format="pdf", profile_names=["steady-row-0"],
             ))
         self.assertGreater(pdf["size_bytes"], 0)
-        self.assertEqual(sorted(plotted_structure_x), sorted([
-            faces["CULVERT-UP"]["cumdist"], faces["CULVERT-DN"]["cumdist"],
-        ]))
+        self.assertEqual(plotted_structure_x, [
+            (faces["CULVERT-UP"]["cumdist"] + faces["CULVERT-DN"]["cumdist"]) / 2.0,
+        ])
 
         dxf = export_profile(ExportOptions(
             session_id=sid, format="dxf", profile_names=["steady-row-0"],

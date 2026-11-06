@@ -1,0 +1,2373 @@
+{
+  "hdf": "C:\\Users\\pateljr\\OneDrive - CDM Smith\\Desktop\\RAS-Plot-Replica\\Muncie\\Muncie.p04.hdf",
+  "geometry_text": "C:\\Users\\pateljr\\OneDrive - CDM Smith\\Desktop\\RAS-Plot-Replica\\Muncie\\Muncie.g04",
+  "canonical_xs_cumdist": {
+    "237.6455": 0.0,
+    "570.1187": 332.4700012207031,
+    "865.5413": 627.8900146484375,
+    "1174.213": 936.5600280761719,
+    "1469.294": 1231.6400146484375,
+    "1743.103": 1505.4500122070312,
+    "1980.776": 1743.1200103759766,
+    "2290.221": 2052.570022583008,
+    "2582.948": 2345.300033569336,
+    "2920.440": 2682.790023803711,
+    "3268.276": 3030.6300201416016,
+    "3690.809": 3453.1600189208984,
+    "3952.406": 3714.760025024414,
+    "4185.719": 3948.070022583008,
+    "4570.628": 4332.980026245117,
+    "4850.811": 4613.160018920898,
+    "5124.979": 4887.330032348633,
+    "5382.517": 5144.870040893555,
+    "5688.906": 5451.260055541992,
+    "5925.654": 5688.010055541992,
+    "6295.048": 6057.40007019043,
+    "6626.553": 6388.910079956055,
+    "6868.344": 6630.7000732421875,
+    "7158.903": 6921.260070800781,
+    "7490.833": 7253.1900634765625,
+    "7864.487": 7626.840057373047,
+    "8110.505": 7872.860061645508,
+    "8434.332": 8196.690048217773,
+    "8757.405": 8519.760055541992,
+    "9081.195": 8843.550064086914,
+    "9334.877": 9097.230056762695,
+    "9548.851": 9311.200057983398,
+    "9854.381": 9616.730056762695,
+    "10216.27": 9978.63005065918,
+    "10672.75": 10435.110061645508,
+    "11188.16": 10950.520034790039,
+    "11377.89": 11140.250030517578,
+    "11628.65": 11391.010025024414,
+    "11781.69": 11544.050018310547,
+    "11958.11": 11720.460021972656,
+    "12117.14": 11879.490020751953,
+    "12227.69": 11990.03002166748,
+    "12492.03": 12254.370018005371,
+    "12817.36": 12579.710014343262,
+    "13214.80": 12977.150016784668,
+    "13490.47": 13252.810020446777,
+    "13859.04": 13621.380027770996,
+    "14039.64": 13801.980033874512,
+    "14166.05": 13928.400032043457,
+    "14305.48": 14067.830024719238,
+    "14443.72": 14206.060020446777,
+    "14535.60": 14297.950019836426,
+    "14697.22": 14459.570014953613,
+    "14787.40": 14549.750015258789,
+    "14856.24": 14618.59001159668,
+    "14917.36": 14679.710010528564,
+    "15013.20": 14775.550006866455,
+    "15205.29": 14967.640003204346,
+    "15370.43": 15132.780002593994,
+    "15485.51": 15247.869998931885,
+    "15696.24": 15458.599994659424
+  },
+  "structures": [
+    {
+      "sid": 0,
+      "attributes_all_fields": {
+        "Type": "Lateral",
+        "Mode": "Weir/Gate/Culverts",
+        "River": "White",
+        "Reach": "Muncie",
+        "RS": "13214",
+        "Connection": "",
+        "Groupname": "White, Muncie (13214)",
+        "US Type": "XS",
+        "US River": "White",
+        "US Reach": "Muncie",
+        "US RS": "13214.80",
+        "US SA/2D": "",
+        "DS Type": "2D",
+        "DS River": "",
+        "DS Reach": "",
+        "DS RS": "",
+        "DS SA/2D": "2D Interior Area",
+        "Node Name": "",
+        "Description": "",
+        "Last Edited": "26Dec2019 14:42:56",
+        "Upstream Distance": null,
+        "Weir Width": 20.0,
+        "Weir Max Submergence": 0.9800000190734863,
+        "Weir Min Elevation": null,
+        "Weir Coef": 2.0,
+        "Weir Shape": "Broad Crested",
+        "Weir Design EG Head": null,
+        "Weir Design Spillway HT": null,
+        "Weir US Slope": 0.0,
+        "Weir DS Slope": 0.0,
+        "Linear Routing Positive Coef": 0.05000000074505806,
+        "Linear Routing Negative Coef": 0.05000000074505806,
+        "Linear Routing Elevation": null,
+        "LW HW Position": 0,
+        "LW TW Position": 0,
+        "LW HW Distance": 3.5999999046325684,
+        "LW TW Distance": null,
+        "LW Span Multiple": 0,
+        "Use 2D for Overflow": 0,
+        "Use Velocity into 2D": 0,
+        "Hagers Weir Coef": null,
+        "Hagers Height": null,
+        "Hagers Slope": null,
+        "Hagers Angle": null,
+        "Hagers Radius": null,
+        "Use WS for Weir Reference": 1,
+        "Pilot Flow": null,
+        "Culvert Groups": 0,
+        "Culverts Flap Gates": 0,
+        "Gate Groups": 0,
+        "HTAB FF Points": 0,
+        "HTAB RC Count": 0,
+        "HTAB RC Points": 0,
+        "HTAB HW Max": 0.0,
+        "HTAB TW Max": 0.0,
+        "HTAB Max Flow": 0.0,
+        "Cell Spacing Near": null,
+        "Cell Spacing Far": null,
+        "Near Repeats": 0,
+        "Protection Radius": 0,
+        "Use Friction in Momentum": 0,
+        "Use Weight in Momentum": 0,
+        "Use Critical US": 0,
+        "Use EG for Pressure Criteria": 0,
+        "Ice Option": 0,
+        "Weir Skew": 0.0,
+        "Pier Skew": 0.0,
+        "BR Contraction": 0.0,
+        "BR Expansion": 0.0,
+        "BR US Left Bank": 0.0,
+        "BR US Right Bank": 0.0,
+        "BR DS Left Bank": 0.0,
+        "BR DS Right Bank": 0.0,
+        "XS US Left Bank": null,
+        "XS US Right Bank": null,
+        "XS DS Left Bank": null,
+        "XS DS Right Bank": null,
+        "US Ineff Left Sta": null,
+        "US Ineff Left Elev": null,
+        "US Ineff Right Sta": null,
+        "US Ineff Right Elev": null,
+        "DS Ineff Left Sta": null,
+        "DS Ineff Left Elev": null,
+        "DS Ineff Right Sta": null,
+        "DS Ineff Right Elev": null,
+        "Use Override HW Connectivity": 1,
+        "Use Override TW Connectivity": 0,
+        "Use RC Family": 0,
+        "Use Override HTabIBCurves": 0,
+        "SNN ID": 19,
+        "Default Centerline": 0
+      },
+      "attributes_populated_fields": {
+        "Type": "Lateral",
+        "Mode": "Weir/Gate/Culverts",
+        "River": "White",
+        "Reach": "Muncie",
+        "RS": "13214",
+        "Groupname": "White, Muncie (13214)",
+        "US Type": "XS",
+        "US River": "White",
+        "US Reach": "Muncie",
+        "US RS": "13214.80",
+        "DS Type": "2D",
+        "DS SA/2D": "2D Interior Area",
+        "Last Edited": "26Dec2019 14:42:56",
+        "Weir Width": 20.0,
+        "Weir Max Submergence": 0.9800000190734863,
+        "Weir Coef": 2.0,
+        "Weir Shape": "Broad Crested",
+        "Linear Routing Positive Coef": 0.05000000074505806,
+        "Linear Routing Negative Coef": 0.05000000074505806,
+        "LW HW Distance": 3.5999999046325684,
+        "Use WS for Weir Reference": 1,
+        "Use Override HW Connectivity": 1,
+        "SNN ID": 19
+      },
+      "table_info": {
+        "Centerline Profile (Index)": 0,
+        "Centerline Profile (Count)": 2,
+        "US XS Profile (Index)": 2,
+        "US XS Profile (Count)": 0,
+        "US BR Profile (Index)": 2,
+        "US BR Profile (Count)": 0,
+        "US BR Weir Profile (Index)": 2,
+        "US BR Weir Profile (Count)": 0,
+        "US BR Lid Profile (Index)": 2,
+        "US BR Lid Profile (Count)": 0,
+        "DS XS Profile (Index)": 2,
+        "DS XS Profile (Count)": 0,
+        "DS BR Profile (Index)": 2,
+        "DS BR Profile (Count)": 0,
+        "DS BR Weir Profile (Index)": 2,
+        "DS BR Weir Profile (Count)": 0,
+        "DS BR Lid Profile (Index)": 2,
+        "DS BR Lid Profile (Count)": 0,
+        "US XS Mann (Index)": 0,
+        "US XS Mann (Count)": 0,
+        "US BR Mann (Index)": 0,
+        "US BR Mann (Count)": 0,
+        "DS XS Mann (Index)": 0,
+        "DS XS Mann (Count)": 0,
+        "DS BR Mann (Index)": 0,
+        "DS BR Mann (Count)": 0,
+        "RC (Index)": 0,
+        "RC (Count)": 0
+      },
+      "profile_station_elevation": [
+        [
+          0.0,
+          952.2000122070312
+        ],
+        [
+          1010.260009765625,
+          952.0
+        ]
+      ],
+      "profile_station_extent": [
+        0.0,
+        1010.260009765625
+      ],
+      "centerline_point_count": 17,
+      "centerline_points": [
+        [
+          411805.98,
+          1801645.08
+        ],
+        [
+          411795.39,
+          1801662.57
+        ],
+        [
+          411769.77,
+          1801696.81
+        ],
+        [
+          411755.24,
+          1801718.73
+        ],
+        [
+          411741.2,
+          1801738.68
+        ],
+        [
+          411728.15,
+          1801771.68
+        ],
+        [
+          411692.19,
+          1801857.64
+        ],
+        [
+          411629.38,
+          1802006.04
+        ],
+        [
+          411589.23,
+          1802104.44
+        ],
+        [
+          411580.36,
+          1802153.45
+        ],
+        [
+          411564.6,
+          1802281.41
+        ],
+        [
+          411549.08,
+          1802361.33
+        ],
+        [
+          411535.29,
+          1802429.07
+        ],
+        [
+          411530.37,
+          1802452.59
+        ],
+        [
+          411524.95,
+          1802517.12
+        ],
+        [
+          411522.98,
+          1802565.64
+        ],
+        [
+          411521.5,
+          1802599.26
+        ]
+      ],
+      "centerline_gis_length": 1010.2641498433385,
+      "hw_connectivity": [
+        {
+          "side": "HW",
+          "rs": "13214.80",
+          "station": -3.5999999046325684
+        },
+        {
+          "side": "HW",
+          "rs": "12817.36",
+          "station": 513.9531860351562
+        },
+        {
+          "side": "HW",
+          "rs": "12492.03",
+          "station": 892.8837280273438
+        },
+        {
+          "side": "HW",
+          "rs": "12227.69",
+          "station": 1168.8580322265625
+        }
+      ],
+      "tw_connectivity": [
+        {
+          "side": "TW",
+          "rs": "5340",
+          "station": -66.2300033569336
+        },
+        {
+          "side": "TW",
+          "rs": "5249",
+          "station": 5.590000152587891
+        },
+        {
+          "side": "TW",
+          "rs": "5160",
+          "station": 77.31999969482422
+        },
+        {
+          "side": "TW",
+          "rs": "5069",
+          "station": 97.19999694824219
+        },
+        {
+          "side": "TW",
+          "rs": "4979",
+          "station": 189.35000610351562
+        },
+        {
+          "side": "TW",
+          "rs": "4884",
+          "station": 207.9199981689453
+        },
+        {
+          "side": "TW",
+          "rs": "4781",
+          "station": 262.1600036621094
+        },
+        {
+          "side": "TW",
+          "rs": "4671",
+          "station": 342.1400146484375
+        },
+        {
+          "side": "TW",
+          "rs": "4552",
+          "station": 370.6300048828125
+        },
+        {
+          "side": "TW",
+          "rs": "4436",
+          "station": 456.739990234375
+        },
+        {
+          "side": "TW",
+          "rs": "4322",
+          "station": 479.1000061035156
+        },
+        {
+          "side": "TW",
+          "rs": "4209",
+          "station": 531.6599731445312
+        },
+        {
+          "side": "TW",
+          "rs": "4094",
+          "station": 582.25
+        },
+        {
+          "side": "TW",
+          "rs": "3979",
+          "station": 632.6300048828125
+        },
+        {
+          "side": "TW",
+          "rs": "3866",
+          "station": 714.8400268554688
+        },
+        {
+          "side": "TW",
+          "rs": "3749",
+          "station": 733.7999877929688
+        },
+        {
+          "side": "TW",
+          "rs": "3609",
+          "station": 784.7999877929688
+        },
+        {
+          "side": "TW",
+          "rs": "3513",
+          "station": 835.7999877929688
+        },
+        {
+          "side": "TW",
+          "rs": "3407",
+          "station": 886.52001953125
+        },
+        {
+          "side": "TW",
+          "rs": "3280",
+          "station": 936.7899780273438
+        },
+        {
+          "side": "TW",
+          "rs": "3160",
+          "station": 986.8099975585938
+        },
+        {
+          "side": "TW",
+          "rs": "3043",
+          "station": 1036.8299560546875
+        }
+      ],
+      "geometry_text_block": [
+        553,
+        609
+      ],
+      "geometry_text_key_lines": [
+        {
+          "line": 553,
+          "text": "Type RM Length L Ch R = 6 ,13214   ,,,"
+        },
+        {
+          "line": 555,
+          "text": "Lateral Weir Pos= 0 "
+        },
+        {
+          "line": 556,
+          "text": "Lateral Weir End=                ,                ,        ,2D Interior Area"
+        },
+        {
+          "line": 557,
+          "text": "Lateral Weir Distance=3.6"
+        },
+        {
+          "line": 558,
+          "text": "Lateral Weir TW Multiple XS=0"
+        },
+        {
+          "line": 559,
+          "text": "Lateral Weir WD=20"
+        },
+        {
+          "line": 560,
+          "text": "Lateral Weir Coef=2"
+        },
+        {
+          "line": 561,
+          "text": "LW OverFlow Method 2D=0"
+        },
+        {
+          "line": 562,
+          "text": "LW OverFlow Use Velocity Into 2D=0"
+        },
+        {
+          "line": 563,
+          "text": "Lateral Weir WSCriteria=-1 "
+        },
+        {
+          "line": 564,
+          "text": "Lateral Weir Flap Gates= 0 "
+        },
+        {
+          "line": 565,
+          "text": "Lateral Weir Hagers EQN= 0 ,,,,,"
+        },
+        {
+          "line": 566,
+          "text": "Lateral Weir SS=0.05,0.05,"
+        },
+        {
+          "line": 567,
+          "text": "Lateral Weir Type= 0 "
+        },
+        {
+          "line": 568,
+          "text": "Lateral Weir Connection Pos and Dist= 0 ,"
+        },
+        {
+          "line": 569,
+          "text": "Lateral Weir SE= 2 "
+        },
+        {
+          "line": 571,
+          "text": "Lateral Weir Centerline= 17 "
+        },
+        {
+          "line": 581,
+          "text": "Lateral Weir HW RS User Defined=-1"
+        },
+        {
+          "line": 582,
+          "text": "Lateral Weir HW RS Station=13214.80,-3.6"
+        },
+        {
+          "line": 583,
+          "text": "Lateral Weir HW RS Station=12817.36,513.9532"
+        },
+        {
+          "line": 584,
+          "text": "Lateral Weir HW RS Station=12492.03,892.8837"
+        },
+        {
+          "line": 585,
+          "text": "Lateral Weir HW RS Station=12227.69,1168.858"
+        },
+        {
+          "line": 586,
+          "text": "Lateral Weir TW RS Station=5340,-66.23"
+        },
+        {
+          "line": 587,
+          "text": "Lateral Weir TW RS Station=5249,5.59"
+        },
+        {
+          "line": 588,
+          "text": "Lateral Weir TW RS Station=5160,77.32"
+        },
+        {
+          "line": 589,
+          "text": "Lateral Weir TW RS Station=5069,97.2"
+        },
+        {
+          "line": 590,
+          "text": "Lateral Weir TW RS Station=4979,189.35"
+        },
+        {
+          "line": 591,
+          "text": "Lateral Weir TW RS Station=4884,207.92"
+        },
+        {
+          "line": 592,
+          "text": "Lateral Weir TW RS Station=4781,262.16"
+        },
+        {
+          "line": 593,
+          "text": "Lateral Weir TW RS Station=4671,342.14"
+        },
+        {
+          "line": 594,
+          "text": "Lateral Weir TW RS Station=4552,370.63"
+        },
+        {
+          "line": 595,
+          "text": "Lateral Weir TW RS Station=4436,456.74"
+        },
+        {
+          "line": 596,
+          "text": "Lateral Weir TW RS Station=4322,479.1"
+        },
+        {
+          "line": 597,
+          "text": "Lateral Weir TW RS Station=4209,531.66"
+        },
+        {
+          "line": 598,
+          "text": "Lateral Weir TW RS Station=4094,582.25"
+        },
+        {
+          "line": 599,
+          "text": "Lateral Weir TW RS Station=3979,632.63"
+        },
+        {
+          "line": 600,
+          "text": "Lateral Weir TW RS Station=3866,714.84"
+        },
+        {
+          "line": 601,
+          "text": "Lateral Weir TW RS Station=3749,733.8"
+        },
+        {
+          "line": 602,
+          "text": "Lateral Weir TW RS Station=3609,784.8"
+        },
+        {
+          "line": 603,
+          "text": "Lateral Weir TW RS Station=3513,835.8"
+        },
+        {
+          "line": 604,
+          "text": "Lateral Weir TW RS Station=3407,886.52"
+        },
+        {
+          "line": 605,
+          "text": "Lateral Weir TW RS Station=3280,936.79"
+        },
+        {
+          "line": 606,
+          "text": "Lateral Weir TW RS Station=3160,986.81"
+        },
+        {
+          "line": 607,
+          "text": "Lateral Weir TW RS Station=3043,1036.83"
+        },
+        {
+          "line": 608,
+          "text": "LW Div RC= 0 ,False,,"
+        }
+      ],
+      "start_mapping": {
+        "lateral_station": 0.0,
+        "upstream_tie": {
+          "side": "HW",
+          "rs": "13214.80",
+          "station": -3.5999999046325684
+        },
+        "downstream_tie": {
+          "side": "HW",
+          "rs": "12817.36",
+          "station": 513.9531860351562
+        },
+        "fraction_from_upstream_tie": 0.00695580667346406,
+        "main_channel_cumdist": 12974.385500963384,
+        "bracket_cumdist": [
+          12977.150016784668,
+          12579.710014343262
+        ]
+      },
+      "end_mapping": {
+        "lateral_station": 1010.260009765625,
+        "upstream_tie": {
+          "side": "HW",
+          "rs": "12492.03",
+          "station": 892.8837280273438
+        },
+        "downstream_tie": {
+          "side": "HW",
+          "rs": "12227.69",
+          "station": 1168.8580322265625
+        },
+        "fraction_from_upstream_tie": 0.42531598033688794,
+        "main_channel_cumdist": 12141.941993320672,
+        "bracket_cumdist": [
+          12254.370018005371,
+          11990.03002166748
+        ]
+      }
+    },
+    {
+      "sid": 1,
+      "attributes_all_fields": {
+        "Type": "Lateral",
+        "Mode": "Weir/Gate/Culverts",
+        "River": "White",
+        "Reach": "Muncie",
+        "RS": "7300",
+        "Connection": "",
+        "Groupname": "White, Muncie (7300)",
+        "US Type": "XS",
+        "US River": "White",
+        "US Reach": "Muncie",
+        "US RS": "7490.833",
+        "US SA/2D": "",
+        "DS Type": "2D",
+        "DS River": "",
+        "DS Reach": "",
+        "DS RS": "",
+        "DS SA/2D": "2D Interior Area",
+        "Node Name": "",
+        "Description": "",
+        "Last Edited": "26Dec2019 14:44:23",
+        "Upstream Distance": null,
+        "Weir Width": 20.0,
+        "Weir Max Submergence": 0.9800000190734863,
+        "Weir Min Elevation": null,
+        "Weir Coef": 2.0,
+        "Weir Shape": "Broad Crested",
+        "Weir Design EG Head": null,
+        "Weir Design Spillway HT": null,
+        "Weir US Slope": 0.0,
+        "Weir DS Slope": 0.0,
+        "Linear Routing Positive Coef": 0.05000000074505806,
+        "Linear Routing Negative Coef": 0.05000000074505806,
+        "Linear Routing Elevation": null,
+        "LW HW Position": 0,
+        "LW TW Position": 0,
+        "LW HW Distance": 175.0,
+        "LW TW Distance": null,
+        "LW Span Multiple": 0,
+        "Use 2D for Overflow": 0,
+        "Use Velocity into 2D": 0,
+        "Hagers Weir Coef": null,
+        "Hagers Height": null,
+        "Hagers Slope": null,
+        "Hagers Angle": null,
+        "Hagers Radius": null,
+        "Use WS for Weir Reference": 1,
+        "Pilot Flow": null,
+        "Culvert Groups": 0,
+        "Culverts Flap Gates": 0,
+        "Gate Groups": 0,
+        "HTAB FF Points": 0,
+        "HTAB RC Count": 0,
+        "HTAB RC Points": 0,
+        "HTAB HW Max": 0.0,
+        "HTAB TW Max": 0.0,
+        "HTAB Max Flow": 0.0,
+        "Cell Spacing Near": null,
+        "Cell Spacing Far": null,
+        "Near Repeats": 0,
+        "Protection Radius": 0,
+        "Use Friction in Momentum": 0,
+        "Use Weight in Momentum": 0,
+        "Use Critical US": 0,
+        "Use EG for Pressure Criteria": 0,
+        "Ice Option": 0,
+        "Weir Skew": 0.0,
+        "Pier Skew": 0.0,
+        "BR Contraction": 0.0,
+        "BR Expansion": 0.0,
+        "BR US Left Bank": 0.0,
+        "BR US Right Bank": 0.0,
+        "BR DS Left Bank": 0.0,
+        "BR DS Right Bank": 0.0,
+        "XS US Left Bank": null,
+        "XS US Right Bank": null,
+        "XS DS Left Bank": null,
+        "XS DS Right Bank": null,
+        "US Ineff Left Sta": null,
+        "US Ineff Left Elev": null,
+        "US Ineff Right Sta": null,
+        "US Ineff Right Elev": null,
+        "DS Ineff Left Sta": null,
+        "DS Ineff Left Elev": null,
+        "DS Ineff Right Sta": null,
+        "DS Ineff Right Elev": null,
+        "Use Override HW Connectivity": 1,
+        "Use Override TW Connectivity": 0,
+        "Use RC Family": 0,
+        "Use Override HTabIBCurves": 0,
+        "SNN ID": 40,
+        "Default Centerline": 0
+      },
+      "attributes_populated_fields": {
+        "Type": "Lateral",
+        "Mode": "Weir/Gate/Culverts",
+        "River": "White",
+        "Reach": "Muncie",
+        "RS": "7300",
+        "Groupname": "White, Muncie (7300)",
+        "US Type": "XS",
+        "US River": "White",
+        "US Reach": "Muncie",
+        "US RS": "7490.833",
+        "DS Type": "2D",
+        "DS SA/2D": "2D Interior Area",
+        "Last Edited": "26Dec2019 14:44:23",
+        "Weir Width": 20.0,
+        "Weir Max Submergence": 0.9800000190734863,
+        "Weir Coef": 2.0,
+        "Weir Shape": "Broad Crested",
+        "Linear Routing Positive Coef": 0.05000000074505806,
+        "Linear Routing Negative Coef": 0.05000000074505806,
+        "LW HW Distance": 175.0,
+        "Use WS for Weir Reference": 1,
+        "Use Override HW Connectivity": 1,
+        "SNN ID": 40
+      },
+      "table_info": {
+        "Centerline Profile (Index)": 2,
+        "Centerline Profile (Count)": 6,
+        "US XS Profile (Index)": 8,
+        "US XS Profile (Count)": 0,
+        "US BR Profile (Index)": 8,
+        "US BR Profile (Count)": 0,
+        "US BR Weir Profile (Index)": 8,
+        "US BR Weir Profile (Count)": 0,
+        "US BR Lid Profile (Index)": 8,
+        "US BR Lid Profile (Count)": 0,
+        "DS XS Profile (Index)": 8,
+        "DS XS Profile (Count)": 0,
+        "DS BR Profile (Index)": 8,
+        "DS BR Profile (Count)": 0,
+        "DS BR Weir Profile (Index)": 8,
+        "DS BR Weir Profile (Count)": 0,
+        "DS BR Lid Profile (Index)": 8,
+        "DS BR Lid Profile (Count)": 0,
+        "US XS Mann (Index)": 0,
+        "US XS Mann (Count)": 0,
+        "US BR Mann (Index)": 0,
+        "US BR Mann (Count)": 0,
+        "DS XS Mann (Index)": 0,
+        "DS XS Mann (Count)": 0,
+        "DS BR Mann (Index)": 0,
+        "DS BR Mann (Count)": 0,
+        "RC (Index)": 0,
+        "RC (Count)": 0
+      },
+      "profile_station_elevation": [
+        [
+          0.0,
+          944.7999877929688
+        ],
+        [
+          1157.0,
+          945.2999877929688
+        ],
+        [
+          2235.0,
+          945.0
+        ],
+        [
+          3805.0,
+          944.7999877929688
+        ],
+        [
+          4185.0,
+          944.5
+        ],
+        [
+          6092.97021484375,
+          944.7999877929688
+        ]
+      ],
+      "profile_station_extent": [
+        0.0,
+        6092.97021484375
+      ],
+      "centerline_point_count": 53,
+      "centerline_points": [
+        [
+          407781.21,
+          1804116.03
+        ],
+        [
+          407778.29,
+          1804119.53
+        ],
+        [
+          407774.79,
+          1804118.94
+        ],
+        [
+          407515.11,
+          1804430.56
+        ],
+        [
+          407463.75,
+          1804470.25
+        ],
+        [
+          407422.91,
+          1804479.58
+        ],
+        [
+          407394.31,
+          1804497.67
+        ],
+        [
+          407353.46,
+          1804539.69
+        ],
+        [
+          407259.22,
+          1804653.78
+        ],
+        [
+          407223.62,
+          1804689.96
+        ],
+        [
+          407203.19,
+          1804703.96
+        ],
+        [
+          407148.34,
+          1804740.14
+        ],
+        [
+          407071.31,
+          1804785.08
+        ],
+        [
+          407018.21,
+          1804816.59
+        ],
+        [
+          407006.83,
+          1804823.3
+        ],
+        [
+          406975.31,
+          1804836.72
+        ],
+        [
+          406947.3,
+          1804848.39
+        ],
+        [
+          406910.54,
+          1804863.57
+        ],
+        [
+          406886.03,
+          1804871.15
+        ],
+        [
+          406875.53,
+          1804874.07
+        ],
+        [
+          406772.24,
+          1804903.25
+        ],
+        [
+          406746.56,
+          1804912.58
+        ],
+        [
+          406675.37,
+          1804937.09
+        ],
+        [
+          406625.18,
+          1804951.68
+        ],
+        [
+          406570.03,
+          1804969.48
+        ],
+        [
+          406212.89,
+          1805013.83
+        ],
+        [
+          406139.66,
+          1805022.88
+        ],
+        [
+          405795.36,
+          1804994.28
+        ],
+        [
+          405589.65,
+          1804957.81
+        ],
+        [
+          405413.42,
+          1804903.54
+        ],
+        [
+          405194.87,
+          1804834.97
+        ],
+        [
+          405120.18,
+          1804794.71
+        ],
+        [
+          405058.32,
+          1804713.59
+        ],
+        [
+          405007.26,
+          1804617.59
+        ],
+        [
+          404983.92,
+          1804516.06
+        ],
+        [
+          404979.54,
+          1804400.8
+        ],
+        [
+          404988.88,
+          1804273.0
+        ],
+        [
+          405042.86,
+          1804094.14
+        ],
+        [
+          405151.11,
+          1803860.43
+        ],
+        [
+          405260.52,
+          1803627.29
+        ],
+        [
+          405362.94,
+          1803414.59
+        ],
+        [
+          405397.08,
+          1803346.6
+        ],
+        [
+          405481.69,
+          1803231.64
+        ],
+        [
+          405542.38,
+          1803145.27
+        ],
+        [
+          405597.53,
+          1803072.04
+        ],
+        [
+          405653.55,
+          1803002.59
+        ],
+        [
+          405753.92,
+          1802875.96
+        ],
+        [
+          405795.07,
+          1802814.98
+        ],
+        [
+          405840.58,
+          1802708.19
+        ],
+        [
+          405917.9,
+          1802501.9
+        ],
+        [
+          406003.4,
+          1802278.69
+        ],
+        [
+          406042.2,
+          1802150.6
+        ],
+        [
+          406040.45,
+          1802017.54
+        ]
+      ],
+      "centerline_gis_length": 6092.969564898853,
+      "hw_connectivity": [
+        {
+          "side": "HW",
+          "rs": "7490.833",
+          "station": -175.0
+        },
+        {
+          "side": "HW",
+          "rs": "7158.903",
+          "station": 182.92820739746094
+        },
+        {
+          "side": "HW",
+          "rs": "6868.344",
+          "station": 451.8974914550781
+        },
+        {
+          "side": "HW",
+          "rs": "6626.553",
+          "station": 702.3193969726562
+        },
+        {
+          "side": "HW",
+          "rs": "6295.048",
+          "station": 1047.5909423828125
+        },
+        {
+          "side": "HW",
+          "rs": "5925.654",
+          "station": 1403.1600341796875
+        },
+        {
+          "side": "HW",
+          "rs": "5688.906",
+          "station": 1623.9820556640625
+        },
+        {
+          "side": "HW",
+          "rs": "5382.517",
+          "station": 1897.0059814453125
+        },
+        {
+          "side": "HW",
+          "rs": "5124.979",
+          "station": 2135.592041015625
+        },
+        {
+          "side": "HW",
+          "rs": "4850.811",
+          "station": 2396.466064453125
+        },
+        {
+          "side": "HW",
+          "rs": "4570.628",
+          "station": 2660.945068359375
+        },
+        {
+          "side": "HW",
+          "rs": "4185.719",
+          "station": 2989.674072265625
+        },
+        {
+          "side": "HW",
+          "rs": "3952.406",
+          "station": 3195.572998046875
+        },
+        {
+          "side": "HW",
+          "rs": "3690.809",
+          "station": 3398.323974609375
+        },
+        {
+          "side": "HW",
+          "rs": "3268.276",
+          "station": 3750.06298828125
+        },
+        {
+          "side": "HW",
+          "rs": "2920.440",
+          "station": 4089.218994140625
+        },
+        {
+          "side": "HW",
+          "rs": "2582.948",
+          "station": 4411.06689453125
+        },
+        {
+          "side": "HW",
+          "rs": "2290.221",
+          "station": 4712.35205078125
+        },
+        {
+          "side": "HW",
+          "rs": "1980.776",
+          "station": 4996.00390625
+        },
+        {
+          "side": "HW",
+          "rs": "1743.103",
+          "station": 5408.7080078125
+        },
+        {
+          "side": "HW",
+          "rs": "1469.294",
+          "station": 5961.80908203125
+        },
+        {
+          "side": "HW",
+          "rs": "1174.213",
+          "station": 6136.0810546875
+        }
+      ],
+      "tw_connectivity": [
+        {
+          "side": "TW",
+          "rs": "878",
+          "station": -25.0
+        },
+        {
+          "side": "TW",
+          "rs": "822",
+          "station": 47.369998931884766
+        },
+        {
+          "side": "TW",
+          "rs": "766",
+          "station": 118.41000366210938
+        },
+        {
+          "side": "TW",
+          "rs": "711",
+          "station": 189.4199981689453
+        },
+        {
+          "side": "TW",
+          "rs": "657",
+          "station": 211.0399932861328
+        },
+        {
+          "side": "TW",
+          "rs": "603",
+          "station": 295.94000244140625
+        },
+        {
+          "side": "TW",
+          "rs": "549",
+          "station": 366.95001220703125
+        },
+        {
+          "side": "TW",
+          "rs": "496",
+          "station": 438.0799865722656
+        },
+        {
+          "side": "TW",
+          "rs": "494",
+          "station": 518.010009765625
+        },
+        {
+          "side": "TW",
+          "rs": "443",
+          "station": 551.9099731445312
+        },
+        {
+          "side": "TW",
+          "rs": "393",
+          "station": 622.77001953125
+        },
+        {
+          "side": "TW",
+          "rs": "344",
+          "station": 693.7899780273438
+        },
+        {
+          "side": "TW",
+          "rs": "297",
+          "station": 764.8099975585938
+        },
+        {
+          "side": "TW",
+          "rs": "251",
+          "station": 835.9600219726562
+        },
+        {
+          "side": "TW",
+          "rs": "206",
+          "station": 908.0999755859375
+        },
+        {
+          "side": "TW",
+          "rs": "204",
+          "station": 987.1599731445312
+        },
+        {
+          "side": "TW",
+          "rs": "162",
+          "station": 1017.7899780273438
+        },
+        {
+          "side": "TW",
+          "rs": "160",
+          "station": 1100.739990234375
+        },
+        {
+          "side": "TW",
+          "rs": "120",
+          "station": 1130.050048828125
+        },
+        {
+          "side": "TW",
+          "rs": "118",
+          "station": 1207.739990234375
+        },
+        {
+          "side": "TW",
+          "rs": "116",
+          "station": 1259.6700439453125
+        },
+        {
+          "side": "TW",
+          "rs": "114",
+          "station": 1311.81005859375
+        },
+        {
+          "side": "TW",
+          "rs": "79",
+          "station": 1329.5699462890625
+        },
+        {
+          "side": "TW",
+          "rs": "77",
+          "station": 1417.47998046875
+        },
+        {
+          "side": "TW",
+          "rs": "75",
+          "station": 1469.719970703125
+        },
+        {
+          "side": "TW",
+          "rs": "45",
+          "station": 1488.06005859375
+        },
+        {
+          "side": "TW",
+          "rs": "43",
+          "station": 1572.6099853515625
+        },
+        {
+          "side": "TW",
+          "rs": "41",
+          "station": 1622.989990234375
+        },
+        {
+          "side": "TW",
+          "rs": "39",
+          "station": 1673.3800048828125
+        },
+        {
+          "side": "TW",
+          "rs": "37",
+          "station": 1723.77001953125
+        },
+        {
+          "side": "TW",
+          "rs": "35",
+          "station": 1774.1600341796875
+        },
+        {
+          "side": "TW",
+          "rs": "33",
+          "station": 1824.550048828125
+        },
+        {
+          "side": "TW",
+          "rs": "11",
+          "station": 1841.6199951171875
+        },
+        {
+          "side": "TW",
+          "rs": "9",
+          "station": 1925.3199462890625
+        },
+        {
+          "side": "TW",
+          "rs": "7",
+          "station": 1975.6300048828125
+        },
+        {
+          "side": "TW",
+          "rs": "5",
+          "station": 2025.739990234375
+        },
+        {
+          "side": "TW",
+          "rs": "1",
+          "station": 2075.840087890625
+        },
+        {
+          "side": "TW",
+          "rs": "2",
+          "station": 2158.1298828125
+        },
+        {
+          "side": "TW",
+          "rs": "25",
+          "station": 2176.419921875
+        },
+        {
+          "side": "TW",
+          "rs": "23",
+          "station": 2226.669921875
+        },
+        {
+          "side": "TW",
+          "rs": "21",
+          "station": 2276.7900390625
+        },
+        {
+          "side": "TW",
+          "rs": "19",
+          "station": 2327.260009765625
+        },
+        {
+          "side": "TW",
+          "rs": "17",
+          "station": 2378.219970703125
+        },
+        {
+          "side": "TW",
+          "rs": "15",
+          "station": 2429.050048828125
+        },
+        {
+          "side": "TW",
+          "rs": "12",
+          "station": 2513.340087890625
+        },
+        {
+          "side": "TW",
+          "rs": "53",
+          "station": 2530.64990234375
+        },
+        {
+          "side": "TW",
+          "rs": "51",
+          "station": 2583.030029296875
+        },
+        {
+          "side": "TW",
+          "rs": "47",
+          "station": 2635.409912109375
+        },
+        {
+          "side": "TW",
+          "rs": "48",
+          "station": 2713.3798828125
+        },
+        {
+          "side": "TW",
+          "rs": "85",
+          "station": 2740.169921875
+        },
+        {
+          "side": "TW",
+          "rs": "81",
+          "station": 2792.550048828125
+        },
+        {
+          "side": "TW",
+          "rs": "82",
+          "station": 2873.0400390625
+        },
+        {
+          "side": "TW",
+          "rs": "122",
+          "station": 2897.31005859375
+        },
+        {
+          "side": "TW",
+          "rs": "123",
+          "station": 2987.9599609375
+        },
+        {
+          "side": "TW",
+          "rs": "164",
+          "station": 3060.070068359375
+        },
+        {
+          "side": "TW",
+          "rs": "208",
+          "station": 3131.949951171875
+        },
+        {
+          "side": "TW",
+          "rs": "253",
+          "station": 3216.14990234375
+        },
+        {
+          "side": "TW",
+          "rs": "298",
+          "station": 3268.260009765625
+        },
+        {
+          "side": "TW",
+          "rs": "346",
+          "station": 3286.81005859375
+        },
+        {
+          "side": "TW",
+          "rs": "394",
+          "station": 3369.889892578125
+        },
+        {
+          "side": "TW",
+          "rs": "445",
+          "station": 3419.909912109375
+        },
+        {
+          "side": "TW",
+          "rs": "498",
+          "station": 3469.949951171875
+        },
+        {
+          "side": "TW",
+          "rs": "550",
+          "station": 3519.989990234375
+        },
+        {
+          "side": "TW",
+          "rs": "605",
+          "station": 3600.0400390625
+        },
+        {
+          "side": "TW",
+          "rs": "659",
+          "station": 3622.429931640625
+        },
+        {
+          "side": "TW",
+          "rs": "713",
+          "station": 3674.739990234375
+        },
+        {
+          "side": "TW",
+          "rs": "767",
+          "station": 3760.070068359375
+        },
+        {
+          "side": "TW",
+          "rs": "824",
+          "station": 3780.43994140625
+        },
+        {
+          "side": "TW",
+          "rs": "879",
+          "station": 3872.7900390625
+        },
+        {
+          "side": "TW",
+          "rs": "939",
+          "station": 3890.739990234375
+        },
+        {
+          "side": "TW",
+          "rs": "997",
+          "station": 3945.27001953125
+        },
+        {
+          "side": "TW",
+          "rs": "1055",
+          "station": 4023.719970703125
+        },
+        {
+          "side": "TW",
+          "rs": "1117",
+          "station": 4056.320068359375
+        },
+        {
+          "side": "TW",
+          "rs": "1178",
+          "station": 4136.240234375
+        },
+        {
+          "side": "TW",
+          "rs": "1240",
+          "station": 4166.66015625
+        },
+        {
+          "side": "TW",
+          "rs": "1301",
+          "station": 4249.490234375
+        },
+        {
+          "side": "TW",
+          "rs": "1363",
+          "station": 4276.7001953125
+        },
+        {
+          "side": "TW",
+          "rs": "1425",
+          "station": 4362.2099609375
+        },
+        {
+          "side": "TW",
+          "rs": "1488",
+          "station": 4387.35009765625
+        },
+        {
+          "side": "TW",
+          "rs": "1552",
+          "station": 4474.33984375
+        },
+        {
+          "side": "TW",
+          "rs": "1615",
+          "station": 4498.83984375
+        },
+        {
+          "side": "TW",
+          "rs": "1679",
+          "station": 4586.1298828125
+        },
+        {
+          "side": "TW",
+          "rs": "1744",
+          "station": 4613.27978515625
+        },
+        {
+          "side": "TW",
+          "rs": "1811",
+          "station": 4693.60009765625
+        },
+        {
+          "side": "TW",
+          "rs": "1879",
+          "station": 4765.25
+        },
+        {
+          "side": "TW",
+          "rs": "1957",
+          "station": 4836.89990234375
+        },
+        {
+          "side": "TW",
+          "rs": "2036",
+          "station": 4859.580078125
+        },
+        {
+          "side": "TW",
+          "rs": "2116",
+          "station": 4943.919921875
+        },
+        {
+          "side": "TW",
+          "rs": "2199",
+          "station": 5015.06005859375
+        },
+        {
+          "side": "TW",
+          "rs": "2285",
+          "station": 5086.2099609375
+        },
+        {
+          "side": "TW",
+          "rs": "2370",
+          "station": 5157.35009765625
+        },
+        {
+          "side": "TW",
+          "rs": "2458",
+          "station": 5178.89013671875
+        },
+        {
+          "side": "TW",
+          "rs": "2548",
+          "station": 5266.14990234375
+        },
+        {
+          "side": "TW",
+          "rs": "2643",
+          "station": 5294.2099609375
+        },
+        {
+          "side": "TW",
+          "rs": "2733",
+          "station": 5381.080078125
+        },
+        {
+          "side": "TW",
+          "rs": "2834",
+          "station": 5402.02001953125
+        },
+        {
+          "side": "TW",
+          "rs": "2936",
+          "station": 5455.5
+        },
+        {
+          "side": "TW",
+          "rs": "3044",
+          "station": 5536.14013671875
+        },
+        {
+          "side": "TW",
+          "rs": "3162",
+          "station": 5562.4501953125
+        },
+        {
+          "side": "TW",
+          "rs": "3281",
+          "station": 5652.43994140625
+        },
+        {
+          "side": "TW",
+          "rs": "3409",
+          "station": 5669.41015625
+        },
+        {
+          "side": "TW",
+          "rs": "3515",
+          "station": 5722.89013671875
+        },
+        {
+          "side": "TW",
+          "rs": "3610",
+          "station": 5807.509765625
+        },
+        {
+          "side": "TW",
+          "rs": "3751",
+          "station": 5829.7099609375
+        },
+        {
+          "side": "TW",
+          "rs": "3868",
+          "station": 5882.06005859375
+        },
+        {
+          "side": "TW",
+          "rs": "3980",
+          "station": 5968.91015625
+        },
+        {
+          "side": "TW",
+          "rs": "4095",
+          "station": 5985.509765625
+        },
+        {
+          "side": "TW",
+          "rs": "4210",
+          "station": 6035.509765625
+        },
+        {
+          "side": "TW",
+          "rs": "4323",
+          "station": 6085.509765625
+        },
+        {
+          "side": "TW",
+          "rs": "4437",
+          "station": 6135.509765625
+        }
+      ],
+      "geometry_text_block": [
+        1322,
+        1503
+      ],
+      "geometry_text_key_lines": [
+        {
+          "line": 1322,
+          "text": "Type RM Length L Ch R = 6 ,7300    ,,,"
+        },
+        {
+          "line": 1324,
+          "text": "Lateral Weir Pos= 0 "
+        },
+        {
+          "line": 1325,
+          "text": "Lateral Weir End=                ,                ,        ,2D Interior Area"
+        },
+        {
+          "line": 1326,
+          "text": "Lateral Weir Distance=175"
+        },
+        {
+          "line": 1327,
+          "text": "Lateral Weir TW Multiple XS=0"
+        },
+        {
+          "line": 1328,
+          "text": "Lateral Weir WD=20"
+        },
+        {
+          "line": 1329,
+          "text": "Lateral Weir Coef=2"
+        },
+        {
+          "line": 1330,
+          "text": "LW OverFlow Method 2D=0"
+        },
+        {
+          "line": 1331,
+          "text": "LW OverFlow Use Velocity Into 2D=0"
+        },
+        {
+          "line": 1332,
+          "text": "Lateral Weir WSCriteria=-1 "
+        },
+        {
+          "line": 1333,
+          "text": "Lateral Weir Flap Gates= 0 "
+        },
+        {
+          "line": 1334,
+          "text": "Lateral Weir Hagers EQN= 0 ,,,,,"
+        },
+        {
+          "line": 1335,
+          "text": "Lateral Weir SS=0.05,0.05,"
+        },
+        {
+          "line": 1336,
+          "text": "Lateral Weir Type= 0 "
+        },
+        {
+          "line": 1337,
+          "text": "Lateral Weir Connection Pos and Dist= 0 ,"
+        },
+        {
+          "line": 1338,
+          "text": "Lateral Weir SE= 6 "
+        },
+        {
+          "line": 1341,
+          "text": "Lateral Weir Centerline= 53 "
+        },
+        {
+          "line": 1369,
+          "text": "Lateral Weir HW RS User Defined=-1"
+        },
+        {
+          "line": 1370,
+          "text": "Lateral Weir HW RS Station=7490.833,-175"
+        },
+        {
+          "line": 1371,
+          "text": "Lateral Weir HW RS Station=7158.903,182.9282"
+        },
+        {
+          "line": 1372,
+          "text": "Lateral Weir HW RS Station=6868.344,451.8975"
+        },
+        {
+          "line": 1373,
+          "text": "Lateral Weir HW RS Station=6626.553,702.3194"
+        },
+        {
+          "line": 1374,
+          "text": "Lateral Weir HW RS Station=6295.048,1047.591"
+        },
+        {
+          "line": 1375,
+          "text": "Lateral Weir HW RS Station=5925.654,1403.16"
+        },
+        {
+          "line": 1376,
+          "text": "Lateral Weir HW RS Station=5688.906,1623.982"
+        },
+        {
+          "line": 1377,
+          "text": "Lateral Weir HW RS Station=5382.517,1897.006"
+        },
+        {
+          "line": 1378,
+          "text": "Lateral Weir HW RS Station=5124.979,2135.592"
+        },
+        {
+          "line": 1379,
+          "text": "Lateral Weir HW RS Station=4850.811,2396.466"
+        },
+        {
+          "line": 1380,
+          "text": "Lateral Weir HW RS Station=4570.628,2660.945"
+        },
+        {
+          "line": 1381,
+          "text": "Lateral Weir HW RS Station=4185.719,2989.674"
+        },
+        {
+          "line": 1382,
+          "text": "Lateral Weir HW RS Station=3952.406,3195.573"
+        },
+        {
+          "line": 1383,
+          "text": "Lateral Weir HW RS Station=3690.809,3398.324"
+        },
+        {
+          "line": 1384,
+          "text": "Lateral Weir HW RS Station=3268.276,3750.063"
+        },
+        {
+          "line": 1385,
+          "text": "Lateral Weir HW RS Station=2920.440,4089.219"
+        },
+        {
+          "line": 1386,
+          "text": "Lateral Weir HW RS Station=2582.948,4411.067"
+        },
+        {
+          "line": 1387,
+          "text": "Lateral Weir HW RS Station=2290.221,4712.352"
+        },
+        {
+          "line": 1388,
+          "text": "Lateral Weir HW RS Station=1980.776,4996.004"
+        },
+        {
+          "line": 1389,
+          "text": "Lateral Weir HW RS Station=1743.103,5408.708"
+        },
+        {
+          "line": 1390,
+          "text": "Lateral Weir HW RS Station=1469.294,5961.809"
+        },
+        {
+          "line": 1391,
+          "text": "Lateral Weir HW RS Station=1174.213,6136.081"
+        },
+        {
+          "line": 1392,
+          "text": "Lateral Weir TW RS Station=878,-25"
+        },
+        {
+          "line": 1393,
+          "text": "Lateral Weir TW RS Station=822,47.37"
+        },
+        {
+          "line": 1394,
+          "text": "Lateral Weir TW RS Station=766,118.41"
+        },
+        {
+          "line": 1395,
+          "text": "Lateral Weir TW RS Station=711,189.42"
+        },
+        {
+          "line": 1396,
+          "text": "Lateral Weir TW RS Station=657,211.04"
+        },
+        {
+          "line": 1397,
+          "text": "Lateral Weir TW RS Station=603,295.94"
+        },
+        {
+          "line": 1398,
+          "text": "Lateral Weir TW RS Station=549,366.95"
+        },
+        {
+          "line": 1399,
+          "text": "Lateral Weir TW RS Station=496,438.08"
+        },
+        {
+          "line": 1400,
+          "text": "Lateral Weir TW RS Station=494,518.01"
+        },
+        {
+          "line": 1401,
+          "text": "Lateral Weir TW RS Station=443,551.91"
+        },
+        {
+          "line": 1402,
+          "text": "Lateral Weir TW RS Station=393,622.77"
+        },
+        {
+          "line": 1403,
+          "text": "Lateral Weir TW RS Station=344,693.79"
+        },
+        {
+          "line": 1404,
+          "text": "Lateral Weir TW RS Station=297,764.81"
+        },
+        {
+          "line": 1405,
+          "text": "Lateral Weir TW RS Station=251,835.96"
+        },
+        {
+          "line": 1406,
+          "text": "Lateral Weir TW RS Station=206,908.1"
+        },
+        {
+          "line": 1407,
+          "text": "Lateral Weir TW RS Station=204,987.16"
+        },
+        {
+          "line": 1408,
+          "text": "Lateral Weir TW RS Station=162,1017.79"
+        },
+        {
+          "line": 1409,
+          "text": "Lateral Weir TW RS Station=160,1100.74"
+        },
+        {
+          "line": 1410,
+          "text": "Lateral Weir TW RS Station=120,1130.05"
+        },
+        {
+          "line": 1411,
+          "text": "Lateral Weir TW RS Station=118,1207.74"
+        },
+        {
+          "line": 1412,
+          "text": "Lateral Weir TW RS Station=116,1259.67"
+        },
+        {
+          "line": 1413,
+          "text": "Lateral Weir TW RS Station=114,1311.81"
+        },
+        {
+          "line": 1414,
+          "text": "Lateral Weir TW RS Station=79,1329.57"
+        },
+        {
+          "line": 1415,
+          "text": "Lateral Weir TW RS Station=77,1417.48"
+        },
+        {
+          "line": 1416,
+          "text": "Lateral Weir TW RS Station=75,1469.72"
+        },
+        {
+          "line": 1417,
+          "text": "Lateral Weir TW RS Station=45,1488.06"
+        },
+        {
+          "line": 1418,
+          "text": "Lateral Weir TW RS Station=43,1572.61"
+        },
+        {
+          "line": 1419,
+          "text": "Lateral Weir TW RS Station=41,1622.99"
+        },
+        {
+          "line": 1420,
+          "text": "Lateral Weir TW RS Station=39,1673.38"
+        },
+        {
+          "line": 1421,
+          "text": "Lateral Weir TW RS Station=37,1723.77"
+        },
+        {
+          "line": 1422,
+          "text": "Lateral Weir TW RS Station=35,1774.16"
+        },
+        {
+          "line": 1423,
+          "text": "Lateral Weir TW RS Station=33,1824.55"
+        },
+        {
+          "line": 1424,
+          "text": "Lateral Weir TW RS Station=11,1841.62"
+        },
+        {
+          "line": 1425,
+          "text": "Lateral Weir TW RS Station=9,1925.32"
+        },
+        {
+          "line": 1426,
+          "text": "Lateral Weir TW RS Station=7,1975.63"
+        },
+        {
+          "line": 1427,
+          "text": "Lateral Weir TW RS Station=5,2025.74"
+        },
+        {
+          "line": 1428,
+          "text": "Lateral Weir TW RS Station=1,2075.84"
+        },
+        {
+          "line": 1429,
+          "text": "Lateral Weir TW RS Station=2,2158.13"
+        },
+        {
+          "line": 1430,
+          "text": "Lateral Weir TW RS Station=25,2176.42"
+        },
+        {
+          "line": 1431,
+          "text": "Lateral Weir TW RS Station=23,2226.67"
+        },
+        {
+          "line": 1432,
+          "text": "Lateral Weir TW RS Station=21,2276.79"
+        },
+        {
+          "line": 1433,
+          "text": "Lateral Weir TW RS Station=19,2327.26"
+        },
+        {
+          "line": 1434,
+          "text": "Lateral Weir TW RS Station=17,2378.22"
+        },
+        {
+          "line": 1435,
+          "text": "Lateral Weir TW RS Station=15,2429.05"
+        },
+        {
+          "line": 1436,
+          "text": "Lateral Weir TW RS Station=12,2513.34"
+        },
+        {
+          "line": 1437,
+          "text": "Lateral Weir TW RS Station=53,2530.65"
+        },
+        {
+          "line": 1438,
+          "text": "Lateral Weir TW RS Station=51,2583.03"
+        },
+        {
+          "line": 1439,
+          "text": "Lateral Weir TW RS Station=47,2635.41"
+        },
+        {
+          "line": 1440,
+          "text": "Lateral Weir TW RS Station=48,2713.38"
+        },
+        {
+          "line": 1441,
+          "text": "Lateral Weir TW RS Station=85,2740.17"
+        },
+        {
+          "line": 1442,
+          "text": "Lateral Weir TW RS Station=81,2792.55"
+        },
+        {
+          "line": 1443,
+          "text": "Lateral Weir TW RS Station=82,2873.04"
+        },
+        {
+          "line": 1444,
+          "text": "Lateral Weir TW RS Station=122,2897.31"
+        },
+        {
+          "line": 1445,
+          "text": "Lateral Weir TW RS Station=123,2987.96"
+        },
+        {
+          "line": 1446,
+          "text": "Lateral Weir TW RS Station=164,3060.07"
+        },
+        {
+          "line": 1447,
+          "text": "Lateral Weir TW RS Station=208,3131.95"
+        },
+        {
+          "line": 1448,
+          "text": "Lateral Weir TW RS Station=253,3216.15"
+        },
+        {
+          "line": 1449,
+          "text": "Lateral Weir TW RS Station=298,3268.26"
+        },
+        {
+          "line": 1450,
+          "text": "Lateral Weir TW RS Station=346,3286.81"
+        },
+        {
+          "line": 1451,
+          "text": "Lateral Weir TW RS Station=394,3369.89"
+        },
+        {
+          "line": 1452,
+          "text": "Lateral Weir TW RS Station=445,3419.91"
+        },
+        {
+          "line": 1453,
+          "text": "Lateral Weir TW RS Station=498,3469.95"
+        },
+        {
+          "line": 1454,
+          "text": "Lateral Weir TW RS Station=550,3519.99"
+        },
+        {
+          "line": 1455,
+          "text": "Lateral Weir TW RS Station=605,3600.04"
+        },
+        {
+          "line": 1456,
+          "text": "Lateral Weir TW RS Station=659,3622.43"
+        },
+        {
+          "line": 1457,
+          "text": "Lateral Weir TW RS Station=713,3674.74"
+        },
+        {
+          "line": 1458,
+          "text": "Lateral Weir TW RS Station=767,3760.07"
+        },
+        {
+          "line": 1459,
+          "text": "Lateral Weir TW RS Station=824,3780.44"
+        },
+        {
+          "line": 1460,
+          "text": "Lateral Weir TW RS Station=879,3872.79"
+        },
+        {
+          "line": 1461,
+          "text": "Lateral Weir TW RS Station=939,3890.74"
+        },
+        {
+          "line": 1462,
+          "text": "Lateral Weir TW RS Station=997,3945.27"
+        },
+        {
+          "line": 1463,
+          "text": "Lateral Weir TW RS Station=1055,4023.72"
+        },
+        {
+          "line": 1464,
+          "text": "Lateral Weir TW RS Station=1117,4056.32"
+        },
+        {
+          "line": 1465,
+          "text": "Lateral Weir TW RS Station=1178,4136.24"
+        },
+        {
+          "line": 1466,
+          "text": "Lateral Weir TW RS Station=1240,4166.66"
+        },
+        {
+          "line": 1467,
+          "text": "Lateral Weir TW RS Station=1301,4249.49"
+        },
+        {
+          "line": 1468,
+          "text": "Lateral Weir TW RS Station=1363,4276.7"
+        },
+        {
+          "line": 1469,
+          "text": "Lateral Weir TW RS Station=1425,4362.21"
+        },
+        {
+          "line": 1470,
+          "text": "Lateral Weir TW RS Station=1488,4387.35"
+        },
+        {
+          "line": 1471,
+          "text": "Lateral Weir TW RS Station=1552,4474.34"
+        },
+        {
+          "line": 1472,
+          "text": "Lateral Weir TW RS Station=1615,4498.84"
+        },
+        {
+          "line": 1473,
+          "text": "Lateral Weir TW RS Station=1679,4586.13"
+        },
+        {
+          "line": 1474,
+          "text": "Lateral Weir TW RS Station=1744,4613.28"
+        },
+        {
+          "line": 1475,
+          "text": "Lateral Weir TW RS Station=1811,4693.6"
+        },
+        {
+          "line": 1476,
+          "text": "Lateral Weir TW RS Station=1879,4765.25"
+        },
+        {
+          "line": 1477,
+          "text": "Lateral Weir TW RS Station=1957,4836.9"
+        },
+        {
+          "line": 1478,
+          "text": "Lateral Weir TW RS Station=2036,4859.58"
+        },
+        {
+          "line": 1479,
+          "text": "Lateral Weir TW RS Station=2116,4943.92"
+        },
+        {
+          "line": 1480,
+          "text": "Lateral Weir TW RS Station=2199,5015.06"
+        },
+        {
+          "line": 1481,
+          "text": "Lateral Weir TW RS Station=2285,5086.21"
+        },
+        {
+          "line": 1482,
+          "text": "Lateral Weir TW RS Station=2370,5157.35"
+        },
+        {
+          "line": 1483,
+          "text": "Lateral Weir TW RS Station=2458,5178.89"
+        },
+        {
+          "line": 1484,
+          "text": "Lateral Weir TW RS Station=2548,5266.15"
+        },
+        {
+          "line": 1485,
+          "text": "Lateral Weir TW RS Station=2643,5294.21"
+        },
+        {
+          "line": 1486,
+          "text": "Lateral Weir TW RS Station=2733,5381.08"
+        },
+        {
+          "line": 1487,
+          "text": "Lateral Weir TW RS Station=2834,5402.02"
+        },
+        {
+          "line": 1488,
+          "text": "Lateral Weir TW RS Station=2936,5455.5"
+        },
+        {
+          "line": 1489,
+          "text": "Lateral Weir TW RS Station=3044,5536.14"
+        },
+        {
+          "line": 1490,
+          "text": "Lateral Weir TW RS Station=3162,5562.45"
+        },
+        {
+          "line": 1491,
+          "text": "Lateral Weir TW RS Station=3281,5652.44"
+        },
+        {
+          "line": 1492,
+          "text": "Lateral Weir TW RS Station=3409,5669.41"
+        },
+        {
+          "line": 1493,
+          "text": "Lateral Weir TW RS Station=3515,5722.89"
+        },
+        {
+          "line": 1494,
+          "text": "Lateral Weir TW RS Station=3610,5807.51"
+        },
+        {
+          "line": 1495,
+          "text": "Lateral Weir TW RS Station=3751,5829.71"
+        },
+        {
+          "line": 1496,
+          "text": "Lateral Weir TW RS Station=3868,5882.06"
+        },
+        {
+          "line": 1497,
+          "text": "Lateral Weir TW RS Station=3980,5968.91"
+        },
+        {
+          "line": 1498,
+          "text": "Lateral Weir TW RS Station=4095,5985.51"
+        },
+        {
+          "line": 1499,
+          "text": "Lateral Weir TW RS Station=4210,6035.51"
+        },
+        {
+          "line": 1500,
+          "text": "Lateral Weir TW RS Station=4323,6085.51"
+        },
+        {
+          "line": 1501,
+          "text": "Lateral Weir TW RS Station=4437,6135.51"
+        },
+        {
+          "line": 1502,
+          "text": "LW Div RC= 0 ,False,,"
+        }
+      ],
+      "start_mapping": {
+        "lateral_station": 0.0,
+        "upstream_tie": {
+          "side": "HW",
+          "rs": "7490.833",
+          "station": -175.0
+        },
+        "downstream_tie": {
+          "side": "HW",
+          "rs": "7158.903",
+          "station": 182.92820739746094
+        },
+        "fraction_from_upstream_tie": 0.4889248636547705,
+        "main_channel_cumdist": 7090.901237064627,
+        "bracket_cumdist": [
+          7253.1900634765625,
+          6921.260070800781
+        ]
+      },
+      "end_mapping": {
+        "lateral_station": 6092.97021484375,
+        "upstream_tie": {
+          "side": "HW",
+          "rs": "1469.294",
+          "station": 5961.80908203125
+        },
+        "downstream_tie": {
+          "side": "HW",
+          "rs": "1174.213",
+          "station": 6136.0810546875
+        },
+        "fraction_from_upstream_tie": 0.7526232176829388,
+        "main_channel_cumdist": 1009.5559656805806,
+        "bracket_cumdist": [
+          1231.6400146484375,
+          936.5600280761719
+        ]
+      }
+    }
+  ]
+}

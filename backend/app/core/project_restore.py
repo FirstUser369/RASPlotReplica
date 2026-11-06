@@ -11,6 +11,7 @@ from uuid import uuid4
 from .model_topology import stable_id
 from .project_file import (
     ApplicationIdentity, BackwaterState, ChannelLengthOverride, DrawingSettings,
+    EngineeringUnitManifest,
     ElevationOverride, EngineeringContext, FloodingSourceState, HydraulicAdjustment,
     LabelOverride, ModelIdentity, PanelSet, ProfileMapping, ProfileState,
     ProjectDocument, ProjectInformation, ReviewEvidence, ReviewedAnnotation,
@@ -131,6 +132,8 @@ def build_project_document(session: dict[str, Any], project_path: str | Path,
             flooding_source=FloodingSourceState(
                 source_id=active.id, display_name=active.display_name,
                 naming_provenance=str(active.provenance.get("naming", "USER_DEFINED")),
+                direction=active.direction,
+                topology_provenance=dict(active.provenance),
                 ordered_reach_ids=[s.reach_id for s in active.ordered_segments],
                 ordered_connection_ids=[s.connection_to_next for s in active.ordered_segments[:-1]]))
 
@@ -154,9 +157,15 @@ def build_project_document(session: dict[str, Any], project_path: str | Path,
         if row.kind == "xs" and row.high_chord is not None:
             elevations.append(ElevationOverride(row_identity=row.row_identity,
                 field="HIGH_CHORD", original_value=None, working_value=row.high_chord))
-        labels.extend([
-            LabelOverride(row_identity=row.row_identity, field="LABEL_LETTER", value=row.label_letter or ""),
-            LabelOverride(row_identity=row.row_identity, field="LABEL_TEXT", value=row.label_text or "")])
+        # Empty labels are the reproducible source default and do not need one
+        # durable record per XS. Legacy files containing explicit empty values
+        # remain accepted by the restoration loop below.
+        if row.label_letter:
+            labels.append(LabelOverride(row_identity=row.row_identity,
+                                        field="LABEL_LETTER", value=row.label_letter))
+        if row.label_text:
+            labels.append(LabelOverride(row_identity=row.row_identity,
+                                        field="LABEL_TEXT", value=row.label_text))
         for item in row.adjustments:
             key = (row.source_identity, str(item.get("profile_id", "")))
             adjustments[key] = HydraulicAdjustment(
@@ -185,6 +194,8 @@ def build_project_document(session: dict[str, Any], project_path: str | Path,
         project_id=session.setdefault("project_id", str(uuid4())),
         saved_at_utc=datetime.now(timezone.utc).isoformat(),
         created_with=ApplicationIdentity(application_version=application_version, build_id=build_id),
+        engineering_units=(EngineeringUnitManifest(**db.unit_contract)
+                           if db.unit_contract else None),
         source=SourceReference(
             relative_path=_relative_source(project, source_path),
             absolute_path_hint=str(source_path), file_name=source_path.name,
@@ -222,6 +233,15 @@ def restore_candidate_session(session_id: str, document: ProjectDocument) -> lis
     from ..routers import hecras_api as api
     session = api._SESSIONS[session_id]
     actual_semantic = semantic_source_identity(session["plan"])
+    actual_unit_contract = getattr(session["plan"], "unit_contract", {})
+    if actual_semantic.unit_system == "SI":
+        if document.engineering_units is None:
+            raise ProjectRestoreError("Saved SI project lacks the required canonical unit manifest.")
+        if document.engineering_units.model_dump(mode="json") != actual_unit_contract:
+            raise ProjectRestoreError("Saved SI project unit contract is incompatible with the verified HDF source.")
+    elif (document.engineering_units is not None
+          and document.engineering_units.model_dump(mode="json") != actual_unit_contract):
+        raise ProjectRestoreError("Saved project unit contract is incompatible with the verified HDF source.")
     legacy_semantic = document.source.semantic_identity is None
     if legacy_semantic:
         saved_model = document.source.model_identity
@@ -256,6 +276,20 @@ def restore_candidate_session(session_id: str, document: ProjectDocument) -> lis
             naming_provenance=fs.naming_provenance, start_cumdist=ctx.stationing_start,
             working_lengths={item.xs_identity: item.working_value
                              for item in document.working_overrides.channel_lengths}))
+        restored_source = session.get("active_flooding_source")
+        restored_connections = [segment.connection_to_next
+                                for segment in restored_source.ordered_segments[:-1]]
+        if (restored_source.id != fs.source_id
+                or restored_source.direction != fs.direction
+                or restored_connections != fs.ordered_connection_ids):
+            raise ProjectRestoreError(
+                "Saved flooding-source route identities do not match the verified topology.")
+        saved_provenance = fs.topology_provenance
+        if saved_provenance and any(
+                restored_source.provenance.get(key) != value
+                for key, value in saved_provenance.items()):
+            raise ProjectRestoreError(
+                "Saved flooding-source topology provenance does not match the verified route.")
     db = api._session_db(session_id)
     rows = {row.row_identity: row for row in db.working}
     xs_rows = {row.source_identity: row for row in db.working if row.kind == "xs"}

@@ -77,13 +77,61 @@ class Phase5Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "review"):
             validate_export(self.db, self.db.panels, self.db.profiles, (17, 11), (0, 400))
 
+    def test_panel_stale_reasons_use_reliable_dependency_categories(self):
+        review_panels(self.db)
+        row = self.db.working[0]
+        api.patch_working(self.sid, [api.WorkingPatch(id=row.id, xs_id=row.source_identity, label_text="Changed")])
+        result = self.db.to_dict()
+        self.assertTrue(result["panels_stale"])
+        categories = {item["category"] for item in result["panel_stale_reasons"]}
+        self.assertEqual(categories, {"cross-section annotations"})
+        self.assertEqual(result["panel_stale_reasons"][0]["affected_panels"], [panel.display_id for panel in self.db.panels])
+        change = result["panel_stale_reasons"][0]["changes"][0]
+        self.assertEqual(change["field"], "label_text")
+        self.assertEqual(change["previous"], None)
+        self.assertEqual(change["current"], "Changed")
+
+    def test_wsel_invalidation_identifies_changed_value_and_affected_panel(self):
+        self.db.panels = [
+            PanelDef(1, 0, 199, 0, 45, h_scale=50, v_scale=5),
+            PanelDef(2, 199, 400, 0, 45, h_scale=50, v_scale=5),
+        ]
+        review_panels(self.db)
+        row = max((item for item in self.db.working if item.kind == "xs"), key=lambda item: item.cumdist)
+        profile_id = self.db.profiles[0].profile_id
+        original = row.profiles[self.db.profiles[0].key]
+        api.patch_working(self.sid, [api.WorkingPatch(
+            id=row.id, xs_id=row.source_identity, profiles={profile_id: original + 1.25})])
+        reason = next(item for item in self.db.to_dict()["panel_stale_reasons"]
+                      if item["category"] == "working geometry and hydraulics")
+        self.assertEqual(reason["affected_panels"], ["2"])
+        change = next(item for item in reason["changes"] if item["field"].startswith("WSEL "))
+        self.assertEqual(change["previous"], original)
+        self.assertEqual(change["current"], original + 1.25)
+
+    def test_panel_scale_mutation_is_attributed_to_that_panel(self):
+        review_panels(self.db)
+        panel = self.db.panels[0]
+        previous = panel.v_scale
+        panel.v_scale = previous * 2
+        reason = next(item for item in self.db.to_dict()["panel_stale_reasons"]
+                      if item["category"] == "panel definitions and scales")
+        self.assertEqual(reason["affected_panels"], [panel.display_id])
+        change = next(item for item in reason["changes"] if item["field"] == "v_scale")
+        self.assertEqual((change["previous"], change["current"]), (previous, previous * 2))
+
     def test_auto_letter_reports_noop_and_changed_counts(self):
         review_panels(self.db)
         first = api.post_auto_letter(self.sid, every=5)
         self.assertEqual(first, {
             "ok": True, "cross_sections_evaluated": 5,
-            "letters_assigned": 2, "letters_changed": 0, "no_op": True,
+            "letters_assigned": 2, "letters_changed": 2, "no_op": False,
         })
+        self.assertTrue(panels_stale(self.db))
+        review_panels(self.db)
+        unchanged = api.post_auto_letter(self.sid, every=5)
+        self.assertEqual(unchanged["letters_changed"], 0)
+        self.assertTrue(unchanged["no_op"])
         self.assertFalse(panels_stale(self.db))
         self.db.working[0].label_letter = "ZZ"
         review_panels(self.db)
@@ -198,6 +246,16 @@ class Phase5Tests(unittest.TestCase):
         self.assertGreater(len(response['panels']),1)
         self.assertEqual(self.db.to_dict(),before)
 
+    def test_panel_content_analysis_endpoint_is_read_only_proposal(self):
+        saved=deepcopy(self.db.panels)
+        result=api.analyze_panels(self.sid,api.PanelContentRequest(
+            panels=[api.PanelIn(**asdict(panel)) for panel in self.db.panels],
+            rounding_increment=5,page_size="11x17"))
+        self.assertTrue(result["proposal_only"])
+        self.assertEqual(len(result["panels"]),len(saved))
+        self.assertIn("required_minimum_elevation",result["panels"][0])
+        self.assertEqual(self.db.panels,saved)
+
     def test_auto_panels_split_for_vertical_as_well_as_horizontal_capacity(self):
         key = self.db.profiles[0].profile_id
         rows = [
@@ -297,6 +355,15 @@ class Phase5Tests(unittest.TestCase):
         self.assertEqual(response["panels"][0]["display_id"], "1P")
         self.assertTrue(all(panel["panel_suffix"] == "" for panel in response["panels"][1:]))
         self.assertEqual(self.db.panels, [saved])
+
+    def test_panel_apply_persists_explicit_sheet_without_changing_scales(self):
+        panel = PanelDef(1, 0, 400, 0, 45, h_scale=40, v_scale=5)
+        response = api.put_panels(self.sid, api.PanelsReplace(
+            panels=[api.PanelIn(**asdict(panel))], page_size="ANSI_C"))
+        self.assertEqual(self.db.header.page_size, "ANSI_C")
+        self.assertEqual(response["panels"][0]["h_scale"], 40)
+        self.assertEqual(response["panels"][0]["v_scale"], 5)
+        self.assertFalse(panels_stale(self.db))
 
     def test_revision_invalidates_without_replacing_panels(self):
         before=deepcopy(self.db.panels)
@@ -613,7 +680,8 @@ class Phase5Tests(unittest.TestCase):
             'Muncie': '6.4.1',
             'Industrial Park': 'validated Phase 6/7 fixture',
         })
-        self.assertIn('SI conversion', response.json()['unsupported'])
+        self.assertNotIn('SI conversion', response.json()['unsupported'])
+        self.assertIn('verified US/SI unit contract', response.json()['scope'])
 
     def test_local_route_preserves_browse_request_through_router_inclusion(self):
         chosen = r'C:\Models\Current.p04.hdf'

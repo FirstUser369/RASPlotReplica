@@ -14,14 +14,17 @@ from .hydraulics import segments, resolve_profiles, profile_label
 import math
 import textwrap
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import ezdxf
 from ezdxf import colors as dxf_colors
 from ezdxf.enums import TextEntityAlignment
 
 from .export_geometry import page_dimensions, plot_dimensions, validate_scales, validate_export, ExportGeometryError, DXF_VERSIONS, LEFT, BOTTOM
-from .engineering_drawing import DrawingBuildConfig, build_engineering_drawing
+from .engineering_drawing import (
+    DrawingBuildConfig, annotation_text_anchor, annotation_warnings_for_panel,
+    build_engineering_drawing,
+)
 
 from .structure_model import export_faces
 
@@ -179,6 +182,8 @@ def export_dxf(
     legacy_modelspace: bool = False,
     revision_interval: tuple[float, float] | None = None,
     drawing_config: DrawingBuildConfig | None = None,
+    status_callback: Callable[[str, str], None] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> str:
     """Write a multi-panel FIS flood profile DXF and return the path."""
     out_path = Path(out_path)
@@ -207,10 +212,16 @@ def export_dxf(
     if dxf_version not in DXF_VERSIONS:
         raise ExportGeometryError(f"Unsupported DXF version {dxf_version!r}; choose {', '.join(DXF_VERSIONS)}.")
     validate_export(db, panels, selected, (page_w, page_h), revision_interval)
+    status_callback = status_callback or (lambda _stage, _message: None)
+    cancel_check = cancel_check or (lambda: None)
+    status_callback("DRAWING_DEFINITION", "Building the immutable engineering drawing definition.")
+    cancel_check()
     drawing = build_engineering_drawing(
         db, panels, [profile.profile_id for profile in selected],
         revision=revision_interval, page_size=page_size, custom_page=custom_page,
-        config=drawing_config)
+        config=drawing_config, cancel_check=cancel_check)
+    cancel_check()
+    status_callback("RENDERING", "Rendering Engineering DXF entities.")
     doc = ezdxf.new(dxf_version)
     doc.header["$INSUNITS"] = 1
     doc.header["$MEASUREMENT"] = 0
@@ -231,6 +242,7 @@ def export_dxf(
     _layer(doc, "PANEL_ID", color=7)
     _layer(doc, "CROSS_SECTIONS", color=7)
     _layer(doc, "ENGINEERING_ANNOTATIONS", color=7)
+    _layer(doc, "ANNOTATION_LEADERS", color=8)
     _layer(doc, "XS_LABEL", color=7)
     _layer(doc, "LANDMARK", color=7)
     _layer(doc, "BACKWATER", color=1)
@@ -253,6 +265,7 @@ def export_dxf(
     gap = 0.5
     cursor_x = 0.0
     for pi, (panel, drawing_panel) in enumerate(zip(panels, drawing.panels)):
+        cancel_check()
         ox = panel.panel_x if panel.panel_x is not None else cursor_x
         oy = panel.panel_y if panel.panel_y is not None else 0.0
         ph = panel.h_scale or h_scale
@@ -300,6 +313,7 @@ def export_dxf(
             _draw_grid(msp, drawing_panel, sx, sy, ax0, ay0, plot_w, plot_h)
 
         for polyline in drawing_panel.polylines:
+            cancel_check()
             points = [(sx(point.x), sy(point.y)) for point in polyline.points]
             if polyline.kind == "STREAM_BED" and len(points) >= 2:
                 msp.add_lwpolyline(points, dxfattribs={"layer": "INVERT", "lineweight": 25})
@@ -310,7 +324,7 @@ def export_dxf(
                     dxfattribs={"layer": layer,
                                 "lineweight": int((polyline.lineweight or .3) * 100)})
             elif polyline.kind == "STRUCTURE_FACE" and len(points) >= 2:
-                msp.add_line(points[0], points[1], dxfattribs={"layer": "STRUCT_CULVERT"})
+                msp.add_line(points[0], points[1], dxfattribs={"layer": polyline.layer})
             elif polyline.kind == "CULVERT_OUTLINE" and len(points) >= 3:
                 msp.add_lwpolyline(
                     points, close=True,
@@ -319,10 +333,14 @@ def export_dxf(
         # Retain the existing low-chord face in addition to the shared face geometry.
         for face in export_faces(db.working,clip_start,clip_end):
             x = sx(face.cumdist)
+            layer = "STRUCT_BRIDGE" if str(face.struc).startswith("BRIDGE-") else "STRUCT_CULVERT"
             msp.add_lwpolyline([(x,sy(face.low_chord)),(x,sy(face.high_chord))],
-                              dxfattribs={"layer":"STRUCT_CULVERT"})
+                              dxfattribs={"layer":layer})
         for annotation in drawing_panel.annotations:
+            cancel_check()
             x, y = sx(annotation.anchor.x), sy(annotation.anchor.y)
+            text_anchor = annotation_text_anchor(annotation)
+            text_x, text_y = sx(text_anchor.x), sy(text_anchor.y)
             if annotation.kind in {"CROSS_SECTION", "CROSS_SECTION_LOCATION"}:
                 half = 0.035
                 msp.add_line((x - half, y), (x + half, y),
@@ -340,12 +358,15 @@ def export_dxf(
                 layer, height, align = "STRUCT_OTHER", 0.08, TextEntityAlignment.LEFT
             else:
                 layer, height, align = "ENGINEERING_ANNOTATIONS", 0.10, TextEntityAlignment.LEFT
+            if annotation.leader_required:
+                msp.add_line((x, y), (text_x, text_y),
+                             dxfattribs={"layer": "ANNOTATION_LEADERS", "lineweight": 9})
             if annotation.text:
                 msp.add_text(
                     annotation.text,
                     dxfattribs={"layer": layer, "height": height,
                                 "rotation": annotation.rotation_degrees},
-                ).set_placement((x, y), align=align)
+                ).set_placement((text_x, text_y), align=align)
 
         # Title block
         if include_title_block:
@@ -366,6 +387,8 @@ def export_dxf(
 
         cursor_x = ox + page_w + gap
 
+    cancel_check()
+    status_callback("WRITING", "Writing the Engineering DXF document.")
     doc.saveas(str(out_path))
     return str(out_path)
 
@@ -425,7 +448,8 @@ def _title_block(msp, ox, oy, page_w, page_h, plot_w, panel, drawing) -> None:
                      ).set_placement((x + 0.38, y), align=TextEntityAlignment.LEFT)
         y -= max(0.13, 0.13 * len(label.splitlines()))
     notes = list(drawing.presentation.data_unavailable_footnotes)
-    notes.extend(drawing.presentation.annotation_warnings)
+    notes.extend(annotation_warnings_for_panel(
+        drawing.presentation.annotation_warnings, panel.panel_id))
     for note in notes:
         add_text(note, 0.07, "ENGINEERING_ANNOTATIONS")
 

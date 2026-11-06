@@ -80,9 +80,17 @@ def compute_cumdist_from_lengths(
 def compute_cumdist(r: ReachGeometry, start: float = 0.0) -> list[float]:
     """Compute canonical ordinary-XS CUMDIST for one upstream-first reach."""
     ids = [xs.identity for xs in r.cross_sections]
-    stations = [station_number(xs.rs) for xs in r.cross_sections]
-    if len(set(ids)) != len(ids) or any(a <= b for a, b in zip(stations, stations[1:])):
-        raise AlignmentError("Reach XS must have unique identities and strictly descending numeric RS (upstream first).")
+    if len(set(ids)) != len(ids):
+        raise AlignmentError("Reach XS must have unique source identities.")
+    nonnumeric_order = getattr(r, "source_order_status", "") in {
+        "SOURCE_NONNUMERIC_UPSTREAM_FIRST_VERIFIED",
+        "SOURCE_NONNUMERIC_DOWNSTREAM_FIRST_NORMALIZED",
+    }
+    if not nonnumeric_order:
+        stations = [station_number(xs.rs) for xs in r.cross_sections]
+        if any(a <= b for a, b in zip(stations, stations[1:])):
+            raise AlignmentError(
+                "Reach XS must have strictly descending numeric RS or verified nonnumeric source order.")
     if any((xs.river, xs.reach) != (r.river, r.reach) for xs in r.cross_sections):
         raise AlignmentError("Cross-section membership does not match its reach.")
     return compute_cumdist_from_lengths(

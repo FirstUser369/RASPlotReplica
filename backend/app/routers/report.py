@@ -9,7 +9,7 @@ import os
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 import matplotlib
 matplotlib.use("Agg")
@@ -40,7 +40,13 @@ from ..core.local_state import LocalRoute, register_artifact, owned_path, artifa
 from ..core.state_contract import require_stationing, panels_stale, require_revision, engineering_version
 from ..core.errors import AppError, log
 from ..core.local_state import discard_failed_artifact
-from ..core.engineering_drawing import DrawingBuildConfig, build_engineering_drawing
+from ..core.engineering_drawing import (
+    DrawingBuildConfig, annotation_text_anchor, annotation_warnings_for_panel,
+    build_engineering_drawing,
+)
+from ..core.export_jobs import (
+    ExportCancelled, cancel_export_job, get_export_job, start_export_job,
+)
 
 router = APIRouter(route_class=LocalRoute, prefix="/api/report")
 
@@ -61,6 +67,8 @@ def render_profile_pdf_from_db(
     custom_page: tuple[float, float] | None = None,
     revision_interval: tuple[float, float] | None = None,
     drawing_config: DrawingBuildConfig | None = None,
+    status_callback: Callable[[str, str], None] | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> str:
     header = db.header
     page_size = page_size or header.page_size or "11x17"
@@ -79,14 +87,21 @@ def render_profile_pdf_from_db(
         panels = auto_panels(db.working, h_scale=h_scale, v_scale=v_scale, page_size=page_size)
 
     unit_factor = distance_unit_factor(header.unit)
+    status_callback = status_callback or (lambda _stage, _message: None)
+    cancel_check = cancel_check or (lambda: None)
+    status_callback("DRAWING_DEFINITION", "Building the immutable engineering drawing definition.")
+    cancel_check()
     drawing = build_engineering_drawing(
         db, panels, [profile.profile_id for profile in selected],
         revision=revision_interval, page_size=page_size, custom_page=custom_page,
-        config=drawing_config)
+        config=drawing_config, cancel_check=cancel_check)
     profile_labels = {profile.profile_id: profile.legend_text for profile in drawing.profiles}
+    cancel_check()
+    status_callback("RENDERING", "Rendering engineering PDF panels.")
     pdf = PdfPages(out_path)
     try:
         for panel, drawing_panel in zip(panels, drawing.panels):
+            cancel_check()
             plot_w, plot_h = plot_dimensions(panel, (page_w, page_h))
             fig = plt.figure(figsize=(page_w, page_h), layout="none")
             try:
@@ -103,6 +118,7 @@ def render_profile_pdf_from_db(
                         ax.axhline(grid_line.coordinate, color=color, linewidth=width, zorder=0)
 
                 for polyline in drawing_panel.polylines:
+                    cancel_check()
                     if len(polyline.points) < 2:
                         continue
                     is_profile = polyline.kind == "PROFILE"
@@ -118,16 +134,31 @@ def render_profile_pdf_from_db(
                         label=profile_labels.get(polyline.profile_id) if is_profile else "Stream bed",
                         zorder=2, clip_on=True)
 
+                # Render XS location markers as one Matplotlib artist. Calling
+                # ax.plot once per XS dominates PDF time and memory on large
+                # models but produces the same engineering marker geometry.
+                xs_markers = [annotation.anchor for annotation in drawing_panel.annotations
+                              if annotation.kind in {"CROSS_SECTION", "CROSS_SECTION_LOCATION"}]
+                if xs_markers:
+                    ax.plot([point.x for point in xs_markers],
+                            [point.y for point in xs_markers], marker="|",
+                            color="#111111", markersize=7, markeredgewidth=0.7,
+                            linestyle="none", zorder=4)
                 for annotation in drawing_panel.annotations:
+                    cancel_check()
+                    text_anchor = annotation_text_anchor(annotation)
                     if annotation.kind == "BACKWATER":
                         ax.axhline(annotation.anchor.y, color="#a33b32", linestyle="--",
                                    linewidth=0.75, zorder=3)
-                    if annotation.kind in {"CROSS_SECTION", "CROSS_SECTION_LOCATION"}:
-                        ax.plot(annotation.anchor.x, annotation.anchor.y, marker="|",
-                                color="#111111", markersize=7, markeredgewidth=0.7,
-                                linestyle="none", zorder=4)
+                    if annotation.leader_required:
+                        ax.plot(
+                            [annotation.anchor.x, text_anchor.x],
+                            [annotation.anchor.y, text_anchor.y],
+                            color="#555555", linewidth=0.45, zorder=4, clip_on=True)
+                    if not annotation.text:
+                        continue
                     ax.text(
-                        annotation.anchor.x, annotation.anchor.y, annotation.text,
+                        text_anchor.x, text_anchor.y, annotation.text,
                         rotation=annotation.rotation_degrees,
                         fontsize=8 if annotation.kind == "CROSS_SECTION" else 6.5,
                         fontname="serif" if annotation.kind == "CROSS_SECTION" else "sans-serif",
@@ -206,7 +237,8 @@ def render_profile_pdf_from_db(
                     sidebar_y -= (0.14 * len(wrapped.splitlines()) + 0.04) / page_h
 
                 notes = list(drawing.presentation.data_unavailable_footnotes)
-                notes.extend(drawing.presentation.annotation_warnings)
+                notes.extend(annotation_warnings_for_panel(
+                    drawing.presentation.annotation_warnings, drawing_panel.panel_id))
                 if drawing.vertical_datum.upper() == "UNKNOWN":
                     notes.append("Vertical datum is unknown.")
                 for note in notes:
@@ -221,6 +253,7 @@ def render_profile_pdf_from_db(
                 plt.close(fig)
     finally:
         pdf.close()
+    status_callback("WRITING", "PDF rendering is complete; preparing the atomic artifact.")
     return out_path
 
 def _mpl_ls(linetype: str | None) -> str:
@@ -406,7 +439,16 @@ def export_profile(req: ExportOptions) -> dict:
     """Export current view to PDF or DXF with scale/style/page options."""
     if req.session_id not in _SESSIONS:
         raise HTTPException(404, "Unknown session")
-    db = deepcopy(_session_db(req.session_id))
+    return _export_profile_snapshot(req, deepcopy(_session_db(req.session_id)))
+
+
+def _export_profile_snapshot(req: ExportOptions, db: RasplotDatabase,
+                             status_callback=None, cancel_check=None) -> dict:
+    """Validate and render one immutable database snapshot."""
+    status_callback = status_callback or (lambda _stage, _message: None)
+    cancel_check = cancel_check or (lambda: None)
+    status_callback("VALIDATION", "Validating engineering state and export preflight.")
+    cancel_check()
     require_artifact_capacity(req.session_id)
     state_version = engineering_version(db)
     if req.expected_engineering_version is not None and req.expected_engineering_version != state_version:
@@ -444,24 +486,28 @@ def export_profile(req: ExportOptions) -> dict:
         raise HTTPException(400, str(exc)) from exc
 
     out_path = None
+    temporary_path = None
     try:
         out_dir = _cache_dir(req.session_id)
         fmt = (req.format or "pdf").lower()
         if fmt == "pdf":
             out_path = os.path.join(out_dir, artifact_name("FIS_profile", ".pdf"))
+            temporary_path = out_path + ".partial"
             render_profile_pdf_from_db(
-                out_path, db,
+                temporary_path, db,
                 profile_names=req.profile_names,
                 panels=export_panels,
                 page_size=db.header.page_size,
                 h_scale=db.header.h_scale, v_scale=db.header.v_scale,
                 custom_page=custom,
                 revision_interval=_resolved_revision_interval(db),
+                status_callback=status_callback, cancel_check=cancel_check,
             )
         elif fmt == "dxf":
             out_path = os.path.join(out_dir, artifact_name("FIS_profile", ".dxf"))
+            temporary_path = out_path + ".partial"
             export_dxf(
-                out_path, db,
+                temporary_path, db,
                 profile_names=req.profile_names,
                 panels=export_panels,
                 page_size=db.header.page_size,
@@ -471,9 +517,15 @@ def export_profile(req: ExportOptions) -> dict:
                 include_title_block=req.include_title_block,
                 custom_page=custom,
                 revision_interval=_resolved_revision_interval(db),
+                status_callback=status_callback, cancel_check=cancel_check,
             )
         else:
             raise HTTPException(400, f"Unsupported format: {fmt}")
+        cancel_check()
+        status_callback("FINALIZATION", "Finalizing the validated artifact atomically.")
+        cancel_check()
+        os.replace(temporary_path, out_path)
+        temporary_path = None
         size_bytes = os.path.getsize(out_path)
         register_artifact(req.session_id, out_path)
         return {
@@ -488,17 +540,56 @@ def export_profile(req: ExportOptions) -> dict:
             "v_scale": export_panels[0].v_scale if export_panels else db.header.v_scale,
             "page_size": db.header.page_size,
         }
+    except ExportCancelled:
+        discard_failed_artifact(req.session_id, temporary_path)
+        discard_failed_artifact(req.session_id, out_path)
+        raise
     except OSError as exc:
+        discard_failed_artifact(req.session_id, temporary_path)
         discard_failed_artifact(req.session_id, out_path)
         log.exception('Artifact write/read failure')
         raise AppError(500, 'FILE_ACCESS', "Export could not write/read its artifact. Check temporary-folder access and free disk space, then retry.") from exc
     except HTTPException:
+        discard_failed_artifact(req.session_id, temporary_path)
         discard_failed_artifact(req.session_id, out_path)
         raise
     except Exception as exc:
+        discard_failed_artifact(req.session_id, temporary_path)
         discard_failed_artifact(req.session_id, out_path)
         log.exception('Renderer failed after preflight')
         raise AppError(500, 'EXPORT_FAILURE', "Export rendering failed after engineering preflight. No successful artifact was registered; report this software error with the source and export settings.") from exc
+
+
+@router.post("/export/start")
+def start_profile_export(req: ExportOptions) -> dict:
+    """Start a responsive PDF/DXF export from an immutable session snapshot."""
+    if req.session_id not in _SESSIONS:
+        raise HTTPException(404, "Unknown session")
+    snapshot = deepcopy(_session_db(req.session_id))
+    try:
+        job = start_export_job(
+            req.session_id, req.format.lower(),
+            lambda update, check: _export_profile_snapshot(req, snapshot, update, check),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return job.public()
+
+
+@router.get("/export-jobs/{sid}/{job_id}")
+def export_job_status(sid: str, job_id: str) -> dict:
+    try:
+        return get_export_job(sid, job_id).public()
+    except KeyError as exc:
+        raise HTTPException(404, "Export job is unknown or belongs to another session.") from exc
+
+
+@router.delete("/export-jobs/{sid}/{job_id}")
+def cancel_profile_export(sid: str, job_id: str) -> dict:
+    try:
+        return cancel_export_job(sid, job_id).public()
+    except KeyError as exc:
+        raise HTTPException(404, "Export job is unknown or belongs to another session.") from exc
 
 
 @router.post("/cad-review-package")

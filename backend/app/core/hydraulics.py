@@ -96,8 +96,17 @@ def hydraulic_preflight(db,selected,start=None,end=None):
         errors.append("CUMDIST is DIRTY; explicitly recalculate stationing before export.")
     if db.structure_inventory.get("state") not in ("VERIFIED_NONE","VERIFIED_PARSED"):
         errors.append("Structure inventory is incomplete/unsupported: " + db.structure_inventory.get("reason", "source verification required"))
-    if db.source_units not in ("US Customary","INTERNAL_US_CUSTOMARY"):
-        errors.append(f"Source units {db.source_units!r} are unsupported. A verified US Customary model is required; no SI conversion is implemented.")
+    if db.working_units != "INTERNAL_US_CUSTOMARY":
+        errors.append(f"Working units {db.working_units!r} are unsupported; canonical engineering feet are required.")
+    if db.source_units == "SI":
+        manifest = db.unit_contract or {}
+        if (db.unit_conversion_status != "COMPLETE"
+                or manifest.get("contract_version") != "rasplot-length-units-v1"
+                or manifest.get("source_length_unit") != "m"
+                or manifest.get("working_length_unit") != "ft"):
+            errors.append("SI source conversion metadata is missing or inconsistent; reopen the source with a verified unit adapter.")
+    elif db.source_units not in ("US Customary","INTERNAL_US_CUSTOMARY"):
+        errors.append(f"Source units {db.source_units!r} are unsupported or unknown.")
     if not selected:
         errors.append("No hydraulic profiles selected.")
     if any(not p.profile_id for p in db.profiles) or len({p.profile_id for p in db.profiles})!=len(db.profiles):

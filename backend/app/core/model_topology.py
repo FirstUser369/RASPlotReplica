@@ -41,6 +41,8 @@ class HdfCapabilities:
     available_result_datasets: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     unsupported_or_unvalidated_features: list[str] = field(default_factory=list)
+    schema_adapter: str = "UNRESOLVED_INSPECTION"
+    workflow_capabilities: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -93,6 +95,7 @@ class NormalizedReach:
     downstream: ReachEndpoint
     topology_status: str
     provenance: dict[str, Any]
+    component_id: str = ""
 
 
 @dataclass
@@ -111,6 +114,9 @@ class TopologyGraph:
     junctions: dict[str, NormalizedJunction]
     connections: dict[str, ReachConnection]
     warnings: list[str] = field(default_factory=list)
+    components: list[list[str]] = field(default_factory=list)
+    cycle_reach_ids: list[str] = field(default_factory=list)
+    branch_junction_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -118,6 +124,9 @@ class TopologyGraph:
             "junctions": [asdict(v) for v in self.junctions.values()],
             "connections": [asdict(v) for v in self.connections.values()],
             "warnings": list(self.warnings),
+            "components": [list(component) for component in self.components],
+            "cycle_reach_ids": list(self.cycle_reach_ids),
+            "branch_junction_ids": list(self.branch_junction_ids),
         }
 
 
@@ -246,7 +255,64 @@ def build_topology(model_id: str, reaches: list[Any], junction_records: list[dic
                                 "upstream_endpoint": up.downstream.provenance,
                                 "downstream_endpoint": down.upstream.provenance},
                 )
-    return TopologyGraph(normalized, junctions, connections, warnings)
+    # Deterministic undirected components distinguish selectable networks;
+    # directed cycle detection prevents a route from silently looping.
+    neighbors = {reach_id: set() for reach_id in normalized}
+    directed = {reach_id: set() for reach_id in normalized}
+    for connection in connections.values():
+        neighbors[connection.upstream_reach_id].add(connection.downstream_reach_id)
+        neighbors[connection.downstream_reach_id].add(connection.upstream_reach_id)
+        directed[connection.upstream_reach_id].add(connection.downstream_reach_id)
+    components: list[list[str]] = []
+    unseen = set(normalized)
+    while unseen:
+        pending = [min(unseen)]
+        component: list[str] = []
+        while pending:
+            current = pending.pop()
+            if current not in unseen:
+                continue
+            unseen.remove(current)
+            component.append(current)
+            pending.extend(sorted(neighbors[current] & unseen, reverse=True))
+        component.sort()
+        components.append(component)
+    components.sort(key=lambda item: item[0])
+    for component in components:
+        component_id = stable_id("component", model_id, *component)
+        for reach_id in component:
+            normalized[reach_id].component_id = component_id
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    stack: list[str] = []
+    cycle_ids: set[str] = set()
+    def visit(reach_id: str) -> None:
+        visiting.add(reach_id)
+        stack.append(reach_id)
+        for downstream_id in sorted(directed[reach_id]):
+            if downstream_id in visiting:
+                cycle_ids.update(stack[stack.index(downstream_id):])
+            elif downstream_id not in visited:
+                visit(downstream_id)
+        stack.pop()
+        visiting.remove(reach_id)
+        visited.add(reach_id)
+    for reach_id in sorted(normalized):
+        if reach_id not in visited:
+            visit(reach_id)
+    if cycle_ids:
+        warnings.append("Reach topology contains a directed cycle; routes through the cycle are blocked.")
+        for reach_id in cycle_ids:
+            normalized[reach_id].topology_status = "BLOCKED_CYCLE"
+    branch_ids = sorted(
+        junction.id for junction in junctions.values()
+        if len(junction.upstream_reach_ids) > 1 or len(junction.downstream_reach_ids) > 1)
+    return TopologyGraph(
+        dict(sorted(normalized.items())), dict(sorted(junctions.items())),
+        dict(sorted(connections.items())), warnings,
+        components=components, cycle_reach_ids=sorted(cycle_ids),
+        branch_junction_ids=branch_ids)
 
 
 def create_flooding_source(model_id: str, display_name: str, reach_ids: list[str],
@@ -260,6 +326,17 @@ def create_flooding_source(model_id: str, display_name: str, reach_ids: list[str
         messages.append("Naming provenance must be USER_DEFINED or ENGINEERING_SUPPLIED.")
     if not reach_ids or len(set(reach_ids)) != len(reach_ids):
         messages.append("Select one or more unique reaches in downstream-to-upstream order.")
+    known_reaches = [topology.reaches[item] for item in reach_ids if item in topology.reaches]
+    components = {item.component_id for item in known_reaches}
+    if len(components) > 1:
+        labels = [f"{item.river_name}/{item.reach_name}" for item in known_reaches]
+        messages.append(
+            "Selected reaches belong to disconnected topology components: " + ", ".join(labels) + ".")
+    selected_cycles = sorted(set(reach_ids) & set(topology.cycle_reach_ids))
+    if selected_cycles:
+        messages.append(
+            "Selected route intersects a directed topology cycle; choose an acyclic authoritative path.")
+    selected_branch_ids: set[str] = set()
     for index, reach_id in enumerate(reach_ids):
         if reach_id not in topology.reaches:
             messages.append(f"Unknown reach ID {reach_id}.")
@@ -272,6 +349,8 @@ def create_flooding_source(model_id: str, display_name: str, reach_ids: list[str
                 messages.append(f"No unique authoritative connection from {upstream_id} to {reach_id}.")
             else:
                 connection = candidates[0]
+                if connection.junction_id in topology.branch_junction_ids:
+                    selected_branch_ids.add(connection.junction_id)
                 if connection.transition_distance is None:
                     messages.append(f"Connection {connection.id} has no authoritative transition distance.")
         segments.append(FloodingSourceSegment(
@@ -285,7 +364,10 @@ def create_flooding_source(model_id: str, display_name: str, reach_ids: list[str
         id=stable_id("flooding-source", model_id, display_name, *reach_ids),
         display_name=display_name, model_id=model_id, ordered_segments=segments,
         topology_validation_status=status,
-        provenance={"naming": naming_provenance, "ordering": "USER_CONFIRMED"},
+        provenance={"naming": naming_provenance, "ordering": "USER_CONFIRMED",
+                    "direction": "DOWNSTREAM_TO_UPSTREAM",
+                    "component_ids": sorted(components),
+                    "explicit_branch_junction_ids": sorted(selected_branch_ids)},
         validation_messages=messages,
     )
 
@@ -298,6 +380,10 @@ def continuous_distances(source: FloodingSource, topology: TopologyGraph,
     if not math.isfinite(start):
         return ContinuousDistanceResult("BLOCKED", {}, [], ["Starting CUMDIST must be finite."])
     edits = working_lengths or {}
+    selected_ids = [segment.reach_id for segment in source.ordered_segments]
+    if len(selected_ids) != len(set(selected_ids)):
+        return ContinuousDistanceResult("BLOCKED", {}, [],
+                                        ["Continuous route contains a duplicate reach or cycle."])
     running = float(start)
     distances: dict[str, float] = {}
     ledger: list[DistanceLedgerEntry] = []
@@ -307,6 +393,13 @@ def continuous_distances(source: FloodingSource, topology: TopologyGraph,
         if reach is None or not reach.cross_sections:
             return ContinuousDistanceResult("BLOCKED", {}, ledger,
                                             [f"Reach {segment.reach_id} has no usable cross sections."])
+        normalized = topology.reaches.get(segment.reach_id)
+        actual_ids = [stable_id("xs", source.model_id, xs.river, xs.reach, xs.rs)
+                      for xs in reach.cross_sections]
+        if normalized is None or actual_ids != normalized.cross_section_ids:
+            return ContinuousDistanceResult(
+                "BLOCKED", {}, ledger,
+                [f"Reach {segment.reach_id} cross-section identity/order no longer matches verified topology."])
         downstream_to_upstream = list(reversed(reach.cross_sections))
         first = downstream_to_upstream[0]
         first_id = stable_id("xs", source.model_id, first.river, first.reach, first.rs)

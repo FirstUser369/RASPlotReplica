@@ -89,6 +89,21 @@ class ApplicationIdentity(StrictModel):
     build_id: str = ""
 
 
+class EngineeringUnitManifest(StrictModel):
+    contract_version: Literal["rasplot-length-units-v1"] = "rasplot-length-units-v1"
+    source_system: Literal["US Customary", "SI"]
+    source_length_unit: Literal["ft", "m"]
+    working_length_unit: Literal["ft"] = "ft"
+    paper_length_unit: Literal["paper_in"] = "paper_in"
+
+    @model_validator(mode="after")
+    def consistent_units(self) -> "EngineeringUnitManifest":
+        expected = "ft" if self.source_system == "US Customary" else "m"
+        if self.source_length_unit != expected:
+            raise ValueError("Source system and source length unit are inconsistent.")
+        return self
+
+
 class SourceFingerprint(StrictModel):
     algorithm: Literal["sha256"] = "sha256"
     sha256: str
@@ -277,6 +292,8 @@ class FloodingSourceState(StrictModel):
     naming_provenance: Literal["USER_DEFINED", "ENGINEERING_SUPPLIED"]
     ordered_reach_ids: list[str]
     ordered_connection_ids: list[str] = Field(default_factory=list)
+    direction: Literal["DOWNSTREAM_TO_UPSTREAM"] = "DOWNSTREAM_TO_UPSTREAM"
+    topology_provenance: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def valid_source(self) -> "FloodingSourceState":
@@ -290,6 +307,13 @@ class FloodingSourceState(StrictModel):
             raise ValueError("Flooding source requires one connection identity between adjacent reaches.")
         if len(self.ordered_connection_ids) != len(set(self.ordered_connection_ids)):
             raise ValueError("Flooding-source connection identities must be unique.")
+        if self.topology_provenance:
+            ordering = self.topology_provenance.get("ordering")
+            direction = self.topology_provenance.get("direction")
+            if ordering not in (None, "USER_CONFIRMED"):
+                raise ValueError("Flooding-source ordering provenance must be USER_CONFIRMED.")
+            if direction not in (None, self.direction):
+                raise ValueError("Flooding-source direction conflicts with topology provenance.")
         return self
 
 
@@ -665,6 +689,7 @@ class ProjectDocument(StrictModel):
     project_id: str
     saved_at_utc: str
     created_with: ApplicationIdentity
+    engineering_units: EngineeringUnitManifest | None = None
     source: SourceReference
     engineering_context: EngineeringContext
     working_overrides: WorkingOverrides = Field(default_factory=WorkingOverrides)
@@ -695,6 +720,14 @@ class ProjectDocument(StrictModel):
             raise ValueError("Fix Drawdowns state must match its saved hydraulic adjustments.")
         if self.engineering_context.stationing_state == "DIRTY" and self.panel_set.review_state == "REVIEWED":
             raise ValueError("Dirty stationing cannot claim reviewed panels.")
+        source_unit_system = (self.source.semantic_identity.unit_system
+                              if self.source.semantic_identity is not None else None)
+        if source_unit_system == "SI":
+            if self.engineering_units is None or self.engineering_units.source_system != "SI":
+                raise ValueError("SI projects require an explicit canonical engineering-unit manifest.")
+        if (self.engineering_units is not None and source_unit_system is not None
+                and self.engineering_units.source_system != source_unit_system):
+            raise ValueError("Project unit manifest does not match the verified source unit system.")
         if self.source.semantic_identity is not None:
             if self.source.semantic_identity.model_id != self.source.model_identity.model_id:
                 raise ValueError("Semantic and source model identities must match.")

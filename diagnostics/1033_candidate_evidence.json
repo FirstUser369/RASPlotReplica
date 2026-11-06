@@ -1,0 +1,1229 @@
+{
+  "file": "C:\\Users\\pateljr\\OneDrive - CDM Smith\\Desktop\\RAS-Plot-Replica\\RASPlotReplica\\RAS Plot Database and Model Linework\\Model Data\\1033_North LOMR As-Built.p04.hdf",
+  "file_type": "HEC-RAS Geometry 5.0.7",
+  "hdf_inventory": [
+    {
+      "path": "/Event Conditions",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Event Conditions/Steady",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Cross Section Interpolation Surfaces",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Cross Section Interpolation Surfaces/TIN Info",
+      "kind": "dataset",
+      "shape": [
+        27,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Section Interpolation Surfaces/TIN Points",
+      "kind": "dataset",
+      "shape": [
+        872,
+        4
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Geometry/Cross Section Interpolation Surfaces/TIN Triangles",
+      "kind": "dataset",
+      "shape": [
+        1203,
+        3
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Section Interpolation Surfaces/XSIDs",
+      "kind": "dataset",
+      "shape": [
+        27,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Cross Sections/Attributes",
+      "kind": "dataset",
+      "shape": [
+        28
+      ],
+      "dtype": "[('River', 'S16'), ('Reach', 'S16'), ('RS', 'S8'), ('Node Name', 'S16'), ('Description', 'S512'), ('Len Left', '<f4'), ('Len Channel', '<f4'), ('Len Right', '<f4'), ('Left Bank', '<f4'), ('Right Bank', '<f4'), ('Friction Mode', 'S32'), ('Contr', '<f4'), ('Expan', '<f4'), ('HP Count', '<i4'), ('HP Start Elev', '<f4'), ('HP Vert Incr', '<f4'), ('HP LOB Slices', '<i4'), ('HP Chan Slices', '<i4'), ('HP ROB Slices', '<i4')]"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Flow Distribution",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Cross Sections/Flow Distribution/Flow Normalized Shear Factor",
+      "kind": "dataset",
+      "shape": [
+        29,
+        33
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Flow Distribution/Flow Normalized Velocity Factor",
+      "kind": "dataset",
+      "shape": [
+        29,
+        33
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Flow Distribution/Info",
+      "kind": "dataset",
+      "shape": [
+        28,
+        3
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Flow Distribution/Stations",
+      "kind": "dataset",
+      "shape": [
+        28,
+        34
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Flow Distribution/Water Surface",
+      "kind": "dataset",
+      "shape": [
+        29,
+        3
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Ineffective Blocks",
+      "kind": "dataset",
+      "shape": [
+        4
+      ],
+      "dtype": "[('Left Sta', '<f4'), ('Right Sta', '<f4'), ('Elevation', '<f4'), ('Permanent', 'u1')]"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Ineffective Info",
+      "kind": "dataset",
+      "shape": [
+        28,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Manning's n Info",
+      "kind": "dataset",
+      "shape": [
+        28,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Manning's n Values",
+      "kind": "dataset",
+      "shape": [
+        84,
+        2
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Polyline Info",
+      "kind": "dataset",
+      "shape": [
+        28,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Polyline Parts",
+      "kind": "dataset",
+      "shape": [
+        28,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Polyline Points",
+      "kind": "dataset",
+      "shape": [
+        110,
+        2
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Station Elevation Info",
+      "kind": "dataset",
+      "shape": [
+        28,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Cross Sections/Station Elevation Values",
+      "kind": "dataset",
+      "shape": [
+        1300,
+        2
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Geometry/Land Cover (Manning's n)",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Land Cover (Manning's n)/Calibration Table",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "[('Land Cover Name', 'S32'), (\"Base Manning's n Value\", '<f4')]"
+    },
+    {
+      "path": "/Geometry/River Bank Lines",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/River Bank Lines/Polyline Info",
+      "kind": "dataset",
+      "shape": [
+        2,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/River Bank Lines/Polyline Parts",
+      "kind": "dataset",
+      "shape": [
+        2,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/River Bank Lines/Polyline Points",
+      "kind": "dataset",
+      "shape": [
+        195,
+        2
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Geometry/River Centerlines",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/River Centerlines/Attributes",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "[('River Name', 'S16'), ('Reach Name', 'S16'), ('US Type', 'S12'), ('US Name', 'S16'), ('DS Type', 'S12'), ('DS Name', 'S16'), ('DS XS to Junction', '<f4'), ('Junction to US XS', '<f4')]"
+    },
+    {
+      "path": "/Geometry/River Centerlines/Polyline Info",
+      "kind": "dataset",
+      "shape": [
+        1,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/River Centerlines/Polyline Parts",
+      "kind": "dataset",
+      "shape": [
+        1,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/River Centerlines/Polyline Points",
+      "kind": "dataset",
+      "shape": [
+        171,
+        2
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Geometry/River Edge Lines",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/River Edge Lines/Polyline Info",
+      "kind": "dataset",
+      "shape": [
+        2,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/River Edge Lines/Polyline Parts",
+      "kind": "dataset",
+      "shape": [
+        2,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/River Edge Lines/Polyline Points",
+      "kind": "dataset",
+      "shape": [
+        154,
+        2
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Geometry/Structures",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Structures/Attributes",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "[('Type', 'S16'), ('River', 'S16'), ('Reach', 'S16'), ('RS', 'S8'), ('Connection', 'S16'), ('Weir Width', '<f4'), ('Weir US Slope', '<f4'), ('Weir DS Slope', '<f4'), ('Culverts', '<i4'), ('Gates', '<i4'), ('LW Velocity Into 2D', 'u1'), ('SNN ID', '<i4'), ('US Type', 'S16'), ('US River', 'S16'), ('US Reach', 'S16'), ('US RS', 'S8'), ('US SA/2D', 'S16'), ('DS Type', 'S16'), ('DS River', 'S16'), ('DS Reach', 'S16'), ('DS RS', 'S8'), ('DS SA/2D', 'S16'), ('Cell Spacing Near', '<f4'), ('Cell Spacing Far', '<f4'), ('Near Repeats', '<i4')]"
+    },
+    {
+      "path": "/Geometry/Structures/Centerline Info",
+      "kind": "dataset",
+      "shape": [
+        1,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Structures/Centerline Parts",
+      "kind": "dataset",
+      "shape": [
+        1,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Structures/Centerline Points",
+      "kind": "dataset",
+      "shape": [
+        2,
+        2
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups/Attributes",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "[('Type', 'S16'), ('River', 'S16'), ('Reach', 'S16'), ('RS', 'S8'), ('Connection', 'S16'), ('Struct ID', '<i4'), ('Name', 'S12'), ('Shape', '<i4'), ('Shape Name', 'S32'), ('Chart', '<i4'), ('Chart Desc', 'S64'), ('Scale', '<i4'), ('Scale Desc', 'S64'), ('Rise', '<f4'), ('Span', '<f4'), ('Length', '<f4'), ('US Distance', '<f4'), ('Top Mann', '<f4'), ('Bot Mann', '<f4'), ('Depth Bot Mann', '<f4'), ('Depth Blck', '<f4'), ('Entr Loss', '<f4'), ('Exit Loss', '<f4'), ('Barrels', '<i4'), ('Invert US', '<f4'), ('Invert DS', '<f4')]"
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups/Barrels",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups/Barrels/Attributes",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "[('Type', 'S16'), ('River', 'S16'), ('Reach', 'S16'), ('RS', 'S8'), ('Connection', 'S16'), ('Struct ID', '<i4'), ('Culv Group Name', 'S12'), ('Culv Group ID', '<i4'), ('Name', 'S32'), ('US Station', '<f4'), ('DS Station', '<f4'), ('Points', '<i4')]"
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups/Barrels/Centerline Info",
+      "kind": "dataset",
+      "shape": [
+        1,
+        4
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups/Barrels/Centerline Parts",
+      "kind": "dataset",
+      "shape": [
+        1,
+        2
+      ],
+      "dtype": "int32"
+    },
+    {
+      "path": "/Geometry/Structures/Culvert Groups/Barrels/Centerline Points",
+      "kind": "dataset",
+      "shape": [
+        0,
+        0
+      ],
+      "dtype": "float64"
+    },
+    {
+      "path": "/Plan Data",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Plan Data/Plan Information",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Plan Data/Plan Parameters",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Geometry Info",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Geometry Info/Cross Section Only",
+      "kind": "dataset",
+      "shape": [
+        28
+      ],
+      "dtype": "|S42"
+    },
+    {
+      "path": "/Results/Steady/Output/Geometry Info/Node Info",
+      "kind": "dataset",
+      "shape": [
+        30
+      ],
+      "dtype": "|S132"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Additional Variables",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Additional Variables/Area Flow Total",
+      "kind": "dataset",
+      "shape": [
+        1,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Additional Variables/Area including Ineffective Total",
+      "kind": "dataset",
+      "shape": [
+        1,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Additional Variables/Conveyance Total",
+      "kind": "dataset",
+      "shape": [
+        1,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Additional Variables/Top Width Total",
+      "kind": "dataset",
+      "shape": [
+        1,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Cross Section Variables",
+      "kind": "dataset",
+      "shape": [
+        1,
+        34,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Flow",
+      "kind": "dataset",
+      "shape": [
+        1,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Cross Sections/Water Surface",
+      "kind": "dataset",
+      "shape": [
+        1,
+        28
+      ],
+      "dtype": "float32"
+    },
+    {
+      "path": "/Results/Steady/Output/Output Blocks/Base Output/Steady Profiles/Profile Names",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "|S16"
+    },
+    {
+      "path": "/Results/Steady/Summary",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Summary",
+      "kind": "group",
+      "shape": null,
+      "dtype": null
+    },
+    {
+      "path": "/Results/Summary/Compute Messages (rtf)",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "|S1034"
+    },
+    {
+      "path": "/Results/Summary/Compute Messages (text)",
+      "kind": "dataset",
+      "shape": [
+        1
+      ],
+      "dtype": "|S669"
+    },
+    {
+      "path": "/Results/Summary/Compute Processes",
+      "kind": "dataset",
+      "shape": [
+        5
+      ],
+      "dtype": "[('Process', 'S28'), ('Filename', 'S67'), ('File Date', 'S21'), ('File Size', '<i4'), ('File Version', 'S9'), ('Arguments', 'S330'), ('Compute Time', 'S12'), ('Compute Time (ms)', '<i4')]"
+    }
+  ],
+  "rivers_reaches": [
+    {
+      "river": "White Tanks - Ag",
+      "reach": "Wash 18",
+      "cross_sections": 28,
+      "structures": 1
+    }
+  ],
+  "profiles": [
+    "PF 1"
+  ],
+  "structure_types": [
+    "Culvert"
+  ],
+  "intervals_total": 27,
+  "structure_free_intervals": 26,
+  "structure_free_supporting_upstream": 26,
+  "structure_free_disagreements": [],
+  "max_structure_free_upstream_error": 1.8516994701690237,
+  "structure_interval": {
+    "upstream_rs": "0.943",
+    "downstream_rs": "0.928",
+    "upstream_len_channel": 132.47000122070312,
+    "downstream_len_channel": 57.16999816894531,
+    "geometry_text_upstream_channel": 132.47,
+    "geometry_text_line": 147,
+    "gis_centerline_interval": 139.35334752182462,
+    "upstream_ownership_error": 6.883346301121492,
+    "downstream_ownership_error": 82.1833493528793,
+    "supports_upstream_ownership": true,
+    "structure_affected": true
+  },
+  "previous_fresh_extent": 7120.339992523193,
+  "candidate_fresh_extent": 3229.0599632263184,
+  "candidate_recalc_extent": 3229.0599632263184,
+  "independent_ordinary_xs_extent": 3229.0599632263184,
+  "river_centerline_between_endpoint_xs": 3238.181834450017,
+  "pairs": [
+    {
+      "upstream_rs": "1.047",
+      "downstream_rs": "0.948",
+      "upstream_len_channel": 552.219970703125,
+      "downstream_len_channel": 42.54999923706055,
+      "geometry_text_upstream_channel": 552.22,
+      "geometry_text_line": 96,
+      "gis_centerline_interval": 552.2202223159916,
+      "upstream_ownership_error": 0.0002516128665774886,
+      "downstream_ownership_error": 509.67022307893103,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.948",
+      "downstream_rs": "0.943",
+      "upstream_len_channel": 42.54999923706055,
+      "downstream_len_channel": 132.47000122070312,
+      "geometry_text_upstream_channel": 42.55,
+      "geometry_text_line": 122,
+      "gis_centerline_interval": 42.55023429281039,
+      "upstream_ownership_error": 0.000235055749840285,
+      "downstream_ownership_error": 89.91976692789274,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.943",
+      "downstream_rs": "0.928",
+      "upstream_len_channel": 132.47000122070312,
+      "downstream_len_channel": 57.16999816894531,
+      "geometry_text_upstream_channel": 132.47,
+      "geometry_text_line": 147,
+      "gis_centerline_interval": 139.35334752182462,
+      "upstream_ownership_error": 6.883346301121492,
+      "downstream_ownership_error": 82.1833493528793,
+      "supports_upstream_ownership": true,
+      "structure_affected": true
+    },
+    {
+      "upstream_rs": "0.928",
+      "downstream_rs": "0.906",
+      "upstream_len_channel": 57.16999816894531,
+      "downstream_len_channel": 131.57000732421875,
+      "geometry_text_upstream_channel": 57.17,
+      "geometry_text_line": 199,
+      "gis_centerline_interval": 59.021697639114336,
+      "upstream_ownership_error": 1.8516994701690237,
+      "downstream_ownership_error": 72.54830968510441,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.906",
+      "downstream_rs": "0.884",
+      "upstream_len_channel": 131.57000732421875,
+      "downstream_len_channel": 101.44999694824219,
+      "geometry_text_upstream_channel": 131.57,
+      "geometry_text_line": 222,
+      "gis_centerline_interval": 131.5685837073072,
+      "upstream_ownership_error": 0.001423616911552017,
+      "downstream_ownership_error": 30.11858675906501,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.884",
+      "downstream_rs": "0.863",
+      "upstream_len_channel": 101.44999694824219,
+      "downstream_len_channel": 113.31999969482422,
+      "geometry_text_upstream_channel": 101.45,
+      "geometry_text_line": 243,
+      "gis_centerline_interval": 101.44877585636868,
+      "upstream_ownership_error": 0.0012210918735036103,
+      "downstream_ownership_error": 11.871223838455535,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.863",
+      "downstream_rs": "0.840",
+      "upstream_len_channel": 113.31999969482422,
+      "downstream_len_channel": 97.63999938964844,
+      "geometry_text_upstream_channel": 113.32,
+      "geometry_text_line": 267,
+      "gis_centerline_interval": 113.32470276620984,
+      "upstream_ownership_error": 0.0047030713856202055,
+      "downstream_ownership_error": 15.684703376561401,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.840",
+      "downstream_rs": "0.813",
+      "upstream_len_channel": 97.63999938964844,
+      "downstream_len_channel": 90.0199966430664,
+      "geometry_text_upstream_channel": 97.64,
+      "geometry_text_line": 290,
+      "gis_centerline_interval": 97.63938463143518,
+      "upstream_ownership_error": 0.0006147582132598473,
+      "downstream_ownership_error": 7.619387988368771,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.813",
+      "downstream_rs": "0.801",
+      "upstream_len_channel": 90.0199966430664,
+      "downstream_len_channel": 128.60000610351562,
+      "geometry_text_upstream_channel": 90.02,
+      "geometry_text_line": 312,
+      "gis_centerline_interval": 90.02106213381171,
+      "upstream_ownership_error": 0.001065490745304487,
+      "downstream_ownership_error": 38.578943969703914,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.801",
+      "downstream_rs": "0.787",
+      "upstream_len_channel": 128.60000610351562,
+      "downstream_len_channel": 124.4800033569336,
+      "geometry_text_upstream_channel": 128.6,
+      "geometry_text_line": 335,
+      "gis_centerline_interval": 128.6002221033907,
+      "upstream_ownership_error": 0.00021599987508125196,
+      "downstream_ownership_error": 4.1202187464571125,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.787",
+      "downstream_rs": "0.760",
+      "upstream_len_channel": 124.4800033569336,
+      "downstream_len_channel": 114.94999694824219,
+      "geometry_text_upstream_channel": 124.48,
+      "geometry_text_line": 358,
+      "gis_centerline_interval": 124.47188617727261,
+      "upstream_ownership_error": 0.00811717966098513,
+      "downstream_ownership_error": 9.521889229030421,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.760",
+      "downstream_rs": "0.742",
+      "upstream_len_channel": 114.94999694824219,
+      "downstream_len_channel": 97.86000061035156,
+      "geometry_text_upstream_channel": 114.95,
+      "geometry_text_line": 379,
+      "gis_centerline_interval": 114.95759774843032,
+      "upstream_ownership_error": 0.007600800188129142,
+      "downstream_ownership_error": 17.097597138078754,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.742",
+      "downstream_rs": "0.723",
+      "upstream_len_channel": 97.86000061035156,
+      "downstream_len_channel": 82.73999786376953,
+      "geometry_text_upstream_channel": 97.86,
+      "geometry_text_line": 402,
+      "gis_centerline_interval": 97.85951407430707,
+      "upstream_ownership_error": 0.00048653604449100385,
+      "downstream_ownership_error": 15.11951621053754,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.723",
+      "downstream_rs": "0.704",
+      "upstream_len_channel": 82.73999786376953,
+      "downstream_len_channel": 101.93000030517578,
+      "geometry_text_upstream_channel": 82.74,
+      "geometry_text_line": 425,
+      "gis_centerline_interval": 82.73669301259451,
+      "upstream_ownership_error": 0.0033048511750166654,
+      "downstream_ownership_error": 19.193307292581267,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.704",
+      "downstream_rs": "0.685",
+      "upstream_len_channel": 101.93000030517578,
+      "downstream_len_channel": 99.0,
+      "geometry_text_upstream_channel": 101.93,
+      "geometry_text_line": 446,
+      "gis_centerline_interval": 101.93076731139331,
+      "upstream_ownership_error": 0.0007670062175293424,
+      "downstream_ownership_error": 2.9307673113933106,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.685",
+      "downstream_rs": "0.668",
+      "upstream_len_channel": 99.0,
+      "downstream_len_channel": 108.11000061035156,
+      "geometry_text_upstream_channel": 99.0,
+      "geometry_text_line": 466,
+      "gis_centerline_interval": 99.00208710735365,
+      "upstream_ownership_error": 0.0020871073536454787,
+      "downstream_ownership_error": 9.107913502997917,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.668",
+      "downstream_rs": "0.639",
+      "upstream_len_channel": 108.11000061035156,
+      "downstream_len_channel": 111.69000244140625,
+      "geometry_text_upstream_channel": 108.11,
+      "geometry_text_line": 491,
+      "gis_centerline_interval": 108.10484971977439,
+      "upstream_ownership_error": 0.0051508905771697755,
+      "downstream_ownership_error": 3.5851527216318573,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.639",
+      "downstream_rs": "0.618",
+      "upstream_len_channel": 111.69000244140625,
+      "downstream_len_channel": 128.97999572753906,
+      "geometry_text_upstream_channel": 111.69,
+      "geometry_text_line": 510,
+      "gis_centerline_interval": 111.69718234151424,
+      "upstream_ownership_error": 0.007179900107985304,
+      "downstream_ownership_error": 17.282813386024827,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.618",
+      "downstream_rs": "0.592",
+      "upstream_len_channel": 128.97999572753906,
+      "downstream_len_channel": 110.1500015258789,
+      "geometry_text_upstream_channel": 128.98,
+      "geometry_text_line": 530,
+      "gis_centerline_interval": 128.9745034067828,
+      "upstream_ownership_error": 0.005492320756275149,
+      "downstream_ownership_error": 18.82450188090388,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.592",
+      "downstream_rs": "0.577",
+      "upstream_len_channel": 110.1500015258789,
+      "downstream_len_channel": 102.58999633789062,
+      "geometry_text_upstream_channel": 110.15,
+      "geometry_text_line": 550,
+      "gis_centerline_interval": 110.1529763188737,
+      "upstream_ownership_error": 0.002974792994791642,
+      "downstream_ownership_error": 7.562979980983073,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.577",
+      "downstream_rs": "0.544",
+      "upstream_len_channel": 102.58999633789062,
+      "downstream_len_channel": 97.75,
+      "geometry_text_upstream_channel": 102.59,
+      "geometry_text_line": 569,
+      "gis_centerline_interval": 102.58910231105301,
+      "upstream_ownership_error": 0.0008940268376136373,
+      "downstream_ownership_error": 4.839102311053011,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.544",
+      "downstream_rs": "0.528",
+      "upstream_len_channel": 97.75,
+      "downstream_len_channel": 98.18000030517578,
+      "geometry_text_upstream_channel": 97.75,
+      "geometry_text_line": 588,
+      "gis_centerline_interval": 97.75308227998221,
+      "upstream_ownership_error": 0.003082279982209002,
+      "downstream_ownership_error": 0.42691802519357225,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.528",
+      "downstream_rs": "0.513",
+      "upstream_len_channel": 98.18000030517578,
+      "downstream_len_channel": 106.37999725341797,
+      "geometry_text_upstream_channel": 98.18,
+      "geometry_text_line": 608,
+      "gis_centerline_interval": 98.17637298966065,
+      "upstream_ownership_error": 0.003627315515132068,
+      "downstream_ownership_error": 8.20362426375732,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.513",
+      "downstream_rs": "0.496",
+      "upstream_len_channel": 106.37999725341797,
+      "downstream_len_channel": 95.5199966430664,
+      "geometry_text_upstream_channel": 106.38,
+      "geometry_text_line": 628,
+      "gis_centerline_interval": 106.38096047624458,
+      "upstream_ownership_error": 0.000963222826612764,
+      "downstream_ownership_error": 10.860963833178175,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.496",
+      "downstream_rs": "0.472",
+      "upstream_len_channel": 95.5199966430664,
+      "downstream_len_channel": 78.08999633789062,
+      "geometry_text_upstream_channel": 95.52,
+      "geometry_text_line": 647,
+      "gis_centerline_interval": 95.52034465433417,
+      "upstream_ownership_error": 0.00034801126776073943,
+      "downstream_ownership_error": 17.430348316443542,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.472",
+      "downstream_rs": "0.460",
+      "upstream_len_channel": 78.08999633789062,
+      "downstream_len_channel": 123.6500015258789,
+      "geometry_text_upstream_channel": 78.09,
+      "geometry_text_line": 666,
+      "gis_centerline_interval": 78.08672552618191,
+      "upstream_ownership_error": 0.003270811708716792,
+      "downstream_ownership_error": 45.563275999697,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    },
+    {
+      "upstream_rs": "0.460",
+      "downstream_rs": "0.447",
+      "upstream_len_channel": 123.6500015258789,
+      "downstream_len_channel": 4443.5,
+      "geometry_text_upstream_channel": 123.65,
+      "geometry_text_line": 686,
+      "gis_centerline_interval": 124.0389560259996,
+      "upstream_ownership_error": 0.3889545001206898,
+      "downstream_ownership_error": 4319.461043974001,
+      "supports_upstream_ownership": true,
+      "structure_affected": false
+    }
+  ],
+  "structure": {
+    "river": "White Tanks - Ag",
+    "reach": "Wash 18",
+    "rs": "0.9425",
+    "type": "Culvert",
+    "us_xs": "0.943",
+    "ds_xs": "0.928",
+    "us_xs_len_channel": 132.47000122070312,
+    "ds_xs_len_channel": 57.16999816894531,
+    "weir_width": 46.0,
+    "culvert_length": 110.0,
+    "culvert_us_distance": 5.0,
+    "residual_ds_distance": 17.470001220703125,
+    "partition_sum": 132.47000122070312,
+    "invert_us": 1105.760009765625,
+    "invert_ds": 1105.4200439453125,
+    "raw_structure_attributes": {
+      "Type": "Culvert",
+      "River": "White Tanks - Ag",
+      "Reach": "Wash 18",
+      "RS": "0.9425",
+      "Connection": "",
+      "Weir Width": 46.0,
+      "Weir US Slope": 3.0,
+      "Weir DS Slope": 3.0,
+      "Culverts": 1,
+      "Gates": 0,
+      "LW Velocity Into 2D": 0,
+      "SNN ID": 4,
+      "US Type": "XS",
+      "US River": "White Tanks - Ag",
+      "US Reach": "Wash 18",
+      "US RS": "0.943",
+      "US SA/2D": "",
+      "DS Type": "XS",
+      "DS River": "White Tanks - Ag",
+      "DS Reach": "Wash 18",
+      "DS RS": "0.928",
+      "DS SA/2D": "",
+      "Cell Spacing Near": null,
+      "Cell Spacing Far": null,
+      "Near Repeats": 2147483647
+    },
+    "raw_culvert_group_attributes": {
+      "Type": "Culvert",
+      "River": "White Tanks - Ag",
+      "Reach": "Wash 18",
+      "RS": "0.9425",
+      "Connection": "",
+      "Struct ID": 0,
+      "Name": "Culvert #1",
+      "Shape": 2,
+      "Shape Name": "Box",
+      "Chart": 8,
+      "Chart Desc": "flared wingwalls",
+      "Scale": 1,
+      "Scale Desc": "Wingwall flared 30 to 75 deg.",
+      "Rise": 4.0,
+      "Span": 10.0,
+      "Length": 110.0,
+      "US Distance": 5.0,
+      "Top Mann": 0.013000000268220901,
+      "Bot Mann": 0.013000000268220901,
+      "Depth Bot Mann": 0.0,
+      "Depth Blck": 0.0,
+      "Entr Loss": 0.5,
+      "Exit Loss": 1.0,
+      "Barrels": 1,
+      "Invert US": 1105.760009765625,
+      "Invert DS": 1105.4200439453125
+    },
+    "canonical_us_xs_cumdist": 2634.289993286133,
+    "canonical_ds_xs_cumdist": 2501.8199920654297,
+    "raw_supported_dn_face_cumdist": 2519.289993286133,
+    "raw_supported_up_face_cumdist": 2629.289993286133,
+    "fresh_working_rows": [
+      {
+        "id": 4,
+        "river": "White Tanks - Ag",
+        "reach": "Wash 18",
+        "rs": "0.9425",
+        "struc": "CULVERT-UP",
+        "length_chnl": 0.0,
+        "cumdist": 2629.289993286133,
+        "minchel": 1105.760009765625,
+        "low_chord": 1109.760009765625,
+        "high_chord": 1112.3562337662338,
+        "label_letter": null,
+        "label_text": null,
+        "profiles": {
+          "PF 1": 1108.337158203125
+        },
+        "kind": "struct",
+        "source_xs_index": 2,
+        "weir_width": 46.0,
+        "connected_us_rs": "0.943",
+        "structure_profile_data": [],
+        "hw_connectivity": [],
+        "tw_connectivity": [],
+        "lateral_hw_distance": null,
+        "lateral_tw_distance": null,
+        "canonical_length_chnl": null,
+        "connected_ds_rs": "0.928",
+        "culvert_us_gap": 5.0,
+        "culvert_barrel_length": 110.0,
+        "culvert_ds_residual": 17.470001220703125,
+        "structure_partition_valid": true,
+        "structure_partition_warning": ""
+      },
+      {
+        "id": 5,
+        "river": "White Tanks - Ag",
+        "reach": "Wash 18",
+        "rs": "0.9425",
+        "struc": "CULVERT-DN",
+        "length_chnl": 0.0,
+        "cumdist": 2519.289993286133,
+        "minchel": 1105.4200439453125,
+        "low_chord": 1109.4200439453125,
+        "high_chord": 1112.5309541217327,
+        "label_letter": null,
+        "label_text": null,
+        "profiles": {
+          "PF 1": 1108.337158203125
+        },
+        "kind": "struct",
+        "source_xs_index": 2,
+        "weir_width": 46.0,
+        "connected_us_rs": "0.943",
+        "structure_profile_data": [],
+        "hw_connectivity": [],
+        "tw_connectivity": [],
+        "lateral_hw_distance": null,
+        "lateral_tw_distance": null,
+        "canonical_length_chnl": null,
+        "connected_ds_rs": "0.928",
+        "culvert_us_gap": 5.0,
+        "culvert_barrel_length": 110.0,
+        "culvert_ds_residual": 17.470001220703125,
+        "structure_partition_valid": true,
+        "structure_partition_warning": ""
+      }
+    ],
+    "recalculated_working_rows": [
+      {
+        "id": 4,
+        "river": "White Tanks - Ag",
+        "reach": "Wash 18",
+        "rs": "0.9425",
+        "struc": "CULVERT-UP",
+        "length_chnl": 0.0,
+        "cumdist": 2629.289993286133,
+        "minchel": 1105.760009765625,
+        "low_chord": 1109.760009765625,
+        "high_chord": 1112.3562337662338,
+        "label_letter": null,
+        "label_text": null,
+        "profiles": {
+          "PF 1": 1108.337158203125
+        },
+        "kind": "struct",
+        "source_xs_index": 2,
+        "weir_width": 46.0,
+        "connected_us_rs": "0.943",
+        "structure_profile_data": [],
+        "hw_connectivity": [],
+        "tw_connectivity": [],
+        "lateral_hw_distance": null,
+        "lateral_tw_distance": null,
+        "canonical_length_chnl": null,
+        "connected_ds_rs": "0.928",
+        "culvert_us_gap": 5.0,
+        "culvert_barrel_length": 110.0,
+        "culvert_ds_residual": 17.470001220703125,
+        "structure_partition_valid": true,
+        "structure_partition_warning": ""
+      },
+      {
+        "id": 5,
+        "river": "White Tanks - Ag",
+        "reach": "Wash 18",
+        "rs": "0.9425",
+        "struc": "CULVERT-DN",
+        "length_chnl": 0.0,
+        "cumdist": 2519.289993286133,
+        "minchel": 1105.4200439453125,
+        "low_chord": 1109.4200439453125,
+        "high_chord": 1112.5309541217327,
+        "label_letter": null,
+        "label_text": null,
+        "profiles": {
+          "PF 1": 1108.337158203125
+        },
+        "kind": "struct",
+        "source_xs_index": 2,
+        "weir_width": 46.0,
+        "connected_us_rs": "0.943",
+        "structure_profile_data": [],
+        "hw_connectivity": [],
+        "tw_connectivity": [],
+        "lateral_hw_distance": null,
+        "lateral_tw_distance": null,
+        "canonical_length_chnl": null,
+        "connected_ds_rs": "0.928",
+        "culvert_us_gap": 5.0,
+        "culvert_barrel_length": 110.0,
+        "culvert_ds_residual": 17.470001220703125,
+        "structure_partition_valid": true,
+        "structure_partition_warning": ""
+      }
+    ],
+    "fresh_main_extent": 3229.0599632263184,
+    "recalculated_main_extent": 3229.0599632263184,
+    "extent_change_from_recalc": 0.0
+  }
+}

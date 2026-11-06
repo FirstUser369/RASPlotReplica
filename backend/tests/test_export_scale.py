@@ -317,6 +317,26 @@ class ExportScaleTests(unittest.TestCase):
         self.assertAlmostEqual(horizontal.dxf.insert.x, 1.75 + 125. / 50., places=8)
         self.assertAlmostEqual(horizontal.dxf.insert.y, 1.0 + 15. / 5., places=8)
 
+    def test_dxf_offsets_colliding_text_with_leader_without_moving_source_anchor(self):
+        panel = PanelDef(5, 0., 200., 0., 20., h_scale=50., v_scale=5.)
+        db = sample(panel)
+        db.landmarks = [
+            Landmark(1, 100., 15., "First"),
+            Landmark(2, 100., 15., "Second"),
+        ]
+        export_dxf(self.dxf, db, panels=[panel])
+        document = ezdxf.readfile(self.dxf)
+        texts = list(document.modelspace().query('TEXT[layer=="LANDMARK"]'))
+        self.assertEqual(len(texts), 2)
+        self.assertNotEqual(
+            {(round(item.dxf.insert.x, 6), round(item.dxf.insert.y, 6)) for item in texts},
+            {(3.75, 4.0)},
+        )
+        leaders = list(document.modelspace().query('LINE[layer=="ANNOTATION_LEADERS"]'))
+        self.assertEqual(len(leaders), 1)
+        self.assertAlmostEqual(leaders[0].dxf.start.x, 1.75 + 100. / 50., places=8)
+        self.assertAlmostEqual(leaders[0].dxf.start.y, 1.0 + 15. / 5., places=8)
+
     def test_dxf_grid_coordinates_match_pdf_and_shared_definition(self):
         panel = PanelDef(27, 0., 6500., 100., 145., h_scale=500., v_scale=5.)
         db = sample(panel)
@@ -426,6 +446,29 @@ class ExportScaleTests(unittest.TestCase):
             all(abs(actual - expected) < .001 for actual, expected in zip(rectangle, (126., 72., 144., 288.)))
             for rectangle in rectangles), rectangles)
         self.assertLess(126. + 144., float(page.mediabox.width))
+
+    def test_ansi_c_pdf_and_dxf_preserve_shared_scale_and_preliminary_notice(self):
+        panel = PanelDef(20, 0., 6500., 100., 155., h_scale=500., v_scale=5.)
+        db = sample(panel)
+        config = DrawingBuildConfig(review_notice="PRELIMINARY — ENGINEERING REVIEW REQUIRED")
+        render_profile_pdf_from_db(
+            str(self.pdf), db, panels=[panel], page_size="ANSI_C",
+            drawing_config=config)
+        export_dxf(
+            self.dxf, db, panels=[panel], page_size="ANSI_C",
+            drawing_config=config)
+        page = PdfReader(self.pdf).pages[0]
+        self.assertAlmostEqual(float(page.mediabox.width), 22. * 72, places=3)
+        self.assertAlmostEqual(float(page.mediabox.height), 17. * 72, places=3)
+        self.assertIn("PRELIMINARY", page.extract_text())
+        document = ezdxf.readfile(self.dxf)
+        self.assertEqual(document.header["$INSUNITS"], 1)
+        self.assertTrue(any("PRELIMINARY" in entity.dxf.text
+                            for entity in document.modelspace().query('TEXT[layer=="TITLE_BLOCK"]')))
+        profile = list(document.modelspace().query('LWPOLYLINE[layer=="TEST"]'))[0]
+        points = list(profile.get_points("xy"))
+        self.assertAlmostEqual(points[-1][0] - points[0][0], 13., places=8)
+        self.assertAlmostEqual(points[-1][1] - points[0][1], 11., places=8)
 
     def test_pdf_renders_vertical_annotation_at_source_text(self):
         from backend.app.core.rasplot_db import Landmark

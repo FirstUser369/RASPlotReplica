@@ -9,6 +9,9 @@ export type ReachInventory = {
   upstream_connection: Endpoint | null;
   downstream_connection: Endpoint | null;
   topology_status: string;
+  component_id?: string | null;
+  source_order_status?: string;
+  source_order_provenance?: Record<string, unknown>;
 };
 
 export type Endpoint = {
@@ -35,6 +38,10 @@ export type ModelInventory = {
   reaches: ReachInventory[];
   junctions: Array<{id: string; name: string; upstream_reach_ids: string[]; downstream_reach_ids: string[]}>;
   connections: TopologyConnection[];
+  components?: string[][];
+  cycle_reach_ids?: string[];
+  branch_junction_ids?: string[];
+  topology_warnings?: string[];
 };
 
 export type OrderedReach = ReachInventory & {

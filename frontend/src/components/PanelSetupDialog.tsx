@@ -1,7 +1,7 @@
 import { profileSegments } from "../engineering";
 import { StaleResponse } from "../api/context";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type GetProfileResponse } from "../api/client";
+import { api, type GetProfileResponse, type PanelContentAnalysis, type PanelContentAnalysisResponse } from "../api/client";
 import { panelRelationships, resizePanelEdge, translatePanel, type PanelResizeEdge } from "../panelVisualization";
 import {
   createPanelNumericInputs,
@@ -33,6 +33,19 @@ const PAGE_DIMENSIONS: Record<string, [number, number]> = {
   ANSI_D: [34, 22], A3: [16.54, 11.69], A1: [33.11, 23.39], LETTER: [11, 8.5], TABLOID: [17, 11],
 };
 
+function displayTicks(min: number, max: number, preferredStep: number, snap: boolean) {
+  if (!snap || !Number.isFinite(preferredStep) || preferredStep <= 0) {
+    return Array.from({ length: 5 }, (_, index) => min + (index / 4) * (max - min));
+  }
+  const rough = Math.max(preferredStep, (max - min) / 8);
+  const power = 10 ** Math.floor(Math.log10(rough));
+  const fraction = rough / power;
+  const step = (fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10) * power;
+  const values: number[] = [];
+  for (let value = Math.ceil(min / step) * step; value <= max + step * 1e-9; value += step) values.push(value);
+  return values.length >= 2 ? values : [min, max];
+}
+
 type Props = {
   open: boolean;
   sessionId: string;
@@ -60,6 +73,11 @@ export default function PanelSetupDialog({
   const [fitVersion, setFitVersion] = useState(0);
   const [previewMode, setPreviewMode] = useState<"overview" | "selected">("overview");
   const [selectedPanelIndex, setSelectedPanelIndex] = useState<number | null>(null);
+  const [excludedPanels, setExcludedPanels] = useState<DraftPanel[]>([]);
+  const [snapPreviewGrid, setSnapPreviewGrid] = useState(true);
+  const [contentAnalysis, setContentAnalysis] = useState<PanelContentAnalysisResponse | null>(null);
+  const [analysisFingerprint, setAnalysisFingerprint] = useState("");
+  const [fitProposal, setFitProposal] = useState<PanelContentAnalysis | null>(null);
   const [dragState, setDragState] = useState<
     | {
         panelIndex: number;
@@ -90,6 +108,24 @@ export default function PanelSetupDialog({
 
   function formatDisplayNumber(value: number | null | undefined) {
     return formatPanelDraftNumber(value);
+  }
+
+  function panelFingerprint(panels: DraftPanel[]) {
+    return JSON.stringify(panels.map((panel) => ({
+      panel: panel.panel, panel_suffix: panel.panel_suffix ?? "",
+      start_station: panel.start_station, end_station: panel.end_station,
+      start_elevation: panel.start_elevation, end_elevation: panel.end_elevation,
+      h_scale: panel.h_scale, v_scale: panel.v_scale,
+    })));
+  }
+
+  async function requestContentAnalysis(panels: DraftPanel[], requestedPageSize: string) {
+    return api.analyzePanelContent(sessionId, panels, requestedPageSize, 5);
+  }
+
+  function storeContentAnalysis(response: PanelContentAnalysisResponse, panels: DraftPanel[]) {
+    setContentAnalysis(response);
+    setAnalysisFingerprint(panelFingerprint(panels));
   }
 
   function buildPreviewBounds(panels: DraftPanel[]) {
@@ -148,8 +184,12 @@ export default function PanelSetupDialog({
         }));
         if (ignore) return;
         setDraftPanels(panels);
+        setExcludedPanels([]);
         setNumericInputs(createPanelNumericInputs(panels));
         setPreviewMode("overview");
+        setContentAnalysis(null);
+        setAnalysisFingerprint("");
+        setFitProposal(null);
         setSelectedPanelIndex(panels.length ? 0 : null);
         committed.current = JSON.stringify(panels);
         const fullDb = await api.getDb(sessionId);
@@ -163,8 +203,16 @@ export default function PanelSetupDialog({
         setVScale(loadedVScale);
         setHScaleInput(formatPanelDraftNumber(loadedHScale));
         setVScaleInput(formatPanelDraftNumber(loadedVScale));
-        setPageSize(String(header.page_size ?? "11x17"));
+        const loadedPageSize = String(header.page_size ?? "11x17");
+        setPageSize(loadedPageSize);
         setStatus(fullDb.panels_stale ? "Saved panels need review after engineering changes. Review and Apply; Cancel leaves them unchanged." : `${panels.length} panels loaded`);
+        try {
+          const analysis = await requestContentAnalysis(panels, loadedPageSize);
+          if (ignore) return;
+          storeContentAnalysis(analysis, panels);
+        } catch (analysisError: any) {
+          if (!ignore) setStatus(`Panels loaded. Engineering-content analysis unavailable: ${String(analysisError.message ?? analysisError)}`);
+        }
       } catch (e: any) {
       if (e instanceof StaleResponse) return;
         if (!ignore) {
@@ -181,6 +229,13 @@ export default function PanelSetupDialog({
       ignore = true;
     };
   }, [open, sessionId, stationingDirty]);
+
+  const activeContentAnalysis = useMemo(() =>
+    analysisFingerprint === panelFingerprint(draftPanels) ? contentAnalysis : null,
+    [analysisFingerprint, contentAnalysis, draftPanels]);
+  const analysisByPanel = useMemo(() => new Map(
+    (activeContentAnalysis?.panels ?? []).map((item) => [item.panel, item])),
+    [activeContentAnalysis]);
 
   const preview = useMemo(() => {
     if (!profile || !draftPanels.length) return null;
@@ -263,17 +318,10 @@ export default function PanelSetupDialog({
     const invertPoints = invertRuns
       .map(run => run.map(([x,y]) => `${stationToX(x)},${elevationToY(y)}`).join(" "));
 
-    const xTicks = Array.from({ length: 5 }, (_, index) => {
-      const ratio = index / 4;
-      const value = viewXMin + ratio * (viewXMax - viewXMin);
-      return { value, x: stationToX(value) };
-    });
-
-    const yTicks = Array.from({ length: 5 }, (_, index) => {
-      const ratio = index / 4;
-      const value = viewYMin + (1 - ratio) * (viewYMax - viewYMin);
-      return { value, y: elevationToY(value) };
-    });
+    const xTicks = displayTicks(viewXMin, viewXMax, Math.max(1, Number(selectedPanel?.h_scale ?? hScale)), snapPreviewGrid)
+      .map(value => ({ value, x: stationToX(value) }));
+    const yTicks = displayTicks(viewYMin, viewYMax, Math.max(0.1, Number(selectedPanel?.v_scale ?? vScale)), snapPreviewGrid)
+      .sort((a,b) => b-a).map(value => ({ value, y: elevationToY(value) }));
 
     const crossSections = xs.map((row) => {
       const x = Number(row.cumdist ?? NaN);
@@ -323,7 +371,7 @@ export default function PanelSetupDialog({
       drawingClip,
       outOfModelPanels,
     };
-  }, [draftPanels, dragState, fitVersion, previewMode, profile, selectedPanelIndex]);
+  }, [draftPanels, dragState, fitVersion, hScale, previewMode, profile, selectedPanelIndex, snapPreviewGrid, vScale]);
   const stitching = useMemo(() => panelRelationships(draftPanels), [draftPanels]);
 
   function materializeForInteraction() {
@@ -361,6 +409,57 @@ export default function PanelSetupDialog({
     } catch (reason: any) {
       setError(String(reason.message ?? reason));
     }
+  }
+
+  function addPanelAfterSelected() {
+    const materialized = materializeForInteraction();
+    if (!materialized) return;
+    const sourceIndex = selectedPanelIndex ?? Math.max(0, materialized.length - 1);
+    const source = materialized[sourceIndex];
+    if (!source) { setError("Create panels with Auto Generate before adding another panel."); return; }
+    const width = Number(source.end_station) - Number(source.start_station);
+    const nextId = Math.max(0, ...materialized.map(panel => Number(panel.panel))) + 1;
+    const added = { ...source, panel: nextId, panel_suffix: "", display_id: String(nextId),
+      start_station: Number(source.end_station), end_station: Number(source.end_station) + width };
+    const next = [...materialized.slice(0, sourceIndex + 1), added, ...materialized.slice(sourceIndex + 1)];
+    setDraftPanels(next); setNumericInputs(createPanelNumericInputs(next)); setSelectedPanelIndex(sourceIndex + 1);
+    setStatus(`Panel ${nextId} added. Review coverage before Apply.`); setError(null);
+  }
+
+  function removeSelectedPanel() {
+    if (selectedPanelIndex == null) return;
+    const next = draftPanels.filter((_, index) => index !== selectedPanelIndex);
+    setDraftPanels(next); setNumericInputs(createPanelNumericInputs(next));
+    setSelectedPanelIndex(next.length ? Math.min(selectedPanelIndex, next.length - 1) : null);
+    setStatus("Panel removed from the draft layout. Apply validates revision coverage."); setError(null);
+  }
+
+  function excludeSelectedPanel() {
+    if (selectedPanelIndex == null) return;
+    const excluded = draftPanels[selectedPanelIndex];
+    const next = draftPanels.filter((_, index) => index !== selectedPanelIndex);
+    setExcludedPanels((current) => [...current, excluded]);
+    setDraftPanels(next); setNumericInputs(createPanelNumericInputs(next));
+    setSelectedPanelIndex(next.length ? Math.min(selectedPanelIndex, next.length - 1) : null);
+    setStatus(`Panel ${excluded.display_id ?? excluded.panel} excluded from the draft saved set. Restore it before Apply if needed.`);
+  }
+
+  function restoreExcludedPanel(panelId: number) {
+    const restored = excludedPanels.find(panel => panel.panel === panelId);
+    if (!restored) return;
+    const next = [...draftPanels, restored];
+    setExcludedPanels(current => current.filter(panel => panel.panel !== panelId));
+    setDraftPanels(next); setNumericInputs(createPanelNumericInputs(next)); setSelectedPanelIndex(next.length - 1);
+    setStatus(`Panel ${restored.display_id ?? restored.panel} restored to the draft saved set.`);
+  }
+
+  function reorderSelectedPanel(delta: number) {
+    if (selectedPanelIndex == null) return;
+    const target = selectedPanelIndex + delta;
+    if (target < 0 || target >= draftPanels.length) return;
+    const next = [...draftPanels]; [next[selectedPanelIndex], next[target]] = [next[target], next[selectedPanelIndex]];
+    setDraftPanels(next); setNumericInputs(createPanelNumericInputs(next)); setSelectedPanelIndex(target);
+    setStatus("Draft panel order changed. Numeric panel IDs and suffixes were preserved.");
   }
 
   function updatePanel(index: number, field: keyof DraftPanel, rawValue: string) {
@@ -469,6 +568,61 @@ export default function PanelSetupDialog({
     return null;
   }
 
+  async function handleAnalyzeContent() {
+    const token = epoch.current;
+    const materialized = committedNumericDraft();
+    if (!materialized.ok) { setError(materialized.error); return; }
+    const validation = validatePanels(materialized.panels, materialized.hScale, materialized.vScale);
+    if (validation) { setError(validation); return; }
+    setIsLoading(true); setError(null); setFitProposal(null);
+    try {
+      const result = await requestContentAnalysis(materialized.panels, pageSize);
+      if (token !== epoch.current) return;
+      storeContentAnalysis(result, materialized.panels);
+      setDraftPanels(materialized.panels);
+      setNumericInputs(createPanelNumericInputs(materialized.panels));
+      const invalid = result.panels.filter((item) => !item.existing_panel_valid);
+      setStatus(invalid.length
+        ? `${invalid.length} panel(s) need elevation review: ${invalid.map((item) => item.display_id).join(", ")}.`
+        : "All panels contain the analyzed engineering content.");
+    } catch (reason: any) {
+      if (!(reason instanceof StaleResponse) && token === epoch.current) setError(String(reason.message ?? reason));
+    } finally {
+      if (token === epoch.current) setIsLoading(false);
+    }
+  }
+
+  function proposeSelectedPanelFit() {
+    if (selectedPanelIndex == null) return;
+    const panel = draftPanels[selectedPanelIndex];
+    const analysis = analysisByPanel.get(panel.panel);
+    if (!analysis) {
+      setError("Analyze Engineering Content for the current draft before fitting this panel.");
+      return;
+    }
+    setFitProposal(analysis);
+    setError(null);
+  }
+
+  function acceptFitProposal() {
+    if (!fitProposal || selectedPanelIndex == null) return;
+    if (fitProposal.requires_scale_or_page_change) {
+      setError("This proposal exceeds the saved physical plot height. Choose and review a vertical scale or page-size change separately.");
+      return;
+    }
+    const next = draftPanels.map((panel, index) => index === selectedPanelIndex ? {
+      ...panel,
+      start_elevation: fitProposal.suggested_minimum_elevation,
+      end_elevation: fitProposal.suggested_maximum_elevation,
+    } : panel);
+    setDraftPanels(next);
+    setNumericInputs((current) => synchronizePanelNumericInputs(current, next, [selectedPanelIndex]));
+    setFitProposal(null);
+    setContentAnalysis(null);
+    setAnalysisFingerprint("");
+    setStatus(`Suggested limits added to the draft for Panel ${fitProposal.display_id}. Review the preview, then Apply to approve them.`);
+  }
+
   async function handleApply() {
     if (applying.current || isLoading) return;
     const token = epoch.current;
@@ -509,6 +663,7 @@ export default function PanelSetupDialog({
       const result = await api.putPanels(sessionId, payload);
       if (token !== epoch.current) return;
       setDraftPanels(result.panels);
+      setExcludedPanels([]);
       setNumericInputs(createPanelNumericInputs(result.panels));
       setHScale(materialized.hScale);
       setVScale(materialized.vScale);
@@ -600,6 +755,7 @@ export default function PanelSetupDialog({
         v_scale: Number(p.v_scale ?? vScale),
       }));
       setDraftPanels(panels);
+      setExcludedPanels([]);
       setNumericInputs(createPanelNumericInputs(panels));
       setHScale(materialized.hScale);
       setVScale(materialized.vScale);
@@ -744,14 +900,63 @@ export default function PanelSetupDialog({
             </div>
           </label>
 
+          <label>
+            <span>Engineering sheet size</span>
+            <select value={pageSize} onChange={(event) => {
+              setPageSize(event.target.value);
+              setContentAnalysis(null);
+              setAnalysisFingerprint("");
+              setFitProposal(null);
+              setStatus(`Draft sheet changed to ${event.target.value}. Analyze content, then Apply to save and review.`);
+            }}>
+              <option value="11x17">11×17 landscape</option>
+              <option value="ANSI_C">ANSI C — 22×17 landscape</option>
+            </select>
+            <small>Changing the sheet does not change panel bounds or scales. Apply is required.</small>
+          </label>
+
           <div className="panel-setup-actions">
             <button type="button" disabled={isLoading} onClick={handleAutoGenerate}>Auto Generate</button>
+            <button type="button" disabled={isLoading || draftPanels.length === 0} onClick={addPanelAfterSelected}>Add Panel</button>
+            <button type="button" disabled={isLoading || selectedPanelIndex == null} onClick={removeSelectedPanel}>Remove Selected</button>
+            <button type="button" disabled={isLoading || selectedPanelIndex == null} onClick={excludeSelectedPanel}>Exclude Selected</button>
+            <button type="button" disabled={isLoading || selectedPanelIndex == null || selectedPanelIndex === 0} onClick={() => reorderSelectedPanel(-1)}>Move Earlier</button>
+            <button type="button" disabled={isLoading || selectedPanelIndex == null || selectedPanelIndex === draftPanels.length - 1} onClick={() => reorderSelectedPanel(1)}>Move Later</button>
             <button type="button" onClick={handleRefreshFit}>Refresh / Fit</button>
             <button type="button" aria-pressed={previewMode === "overview"}
               onClick={() => { setPreviewMode("overview"); setStatus("Full profile overview"); }}>Full Profile Overview</button>
             <button type="button" aria-pressed={previewMode === "selected"} disabled={selectedPanelIndex == null}
               onClick={() => { setPreviewMode("selected"); setStatus("Selected panel preview"); }}>Selected Panel Preview</button>
+            <button type="button" disabled={isLoading || draftPanels.length === 0} onClick={handleAnalyzeContent}>Analyze Engineering Content</button>
+            <button type="button" disabled={isLoading || selectedPanelIndex == null || !activeContentAnalysis} onClick={proposeSelectedPanelFit}>Fit Panel to Engineering Content</button>
+            <label className="panel-grid-snap"><input type="checkbox" checked={snapPreviewGrid} onChange={event => setSnapPreviewGrid(event.target.checked)} /> Snap preview grid labels to scale-aware intervals</label>
           </div>
+          {excludedPanels.length > 0 && <div className="excluded-panel-tray" aria-label="Excluded draft panels">
+            <strong>Excluded from draft saved set</strong>
+            {excludedPanels.map(panel => <button type="button" key={panel.panel} onClick={() => restoreExcludedPanel(panel.panel)}>Restore Panel {panel.display_id ?? panel.panel}</button>)}
+            <span>Exclusions are reversible until Apply. Export selection is configured separately in Export.</span>
+          </div>}
+          <p className="panel-snap-policy">Grid snapping changes preview tick labels only. Exact Revision Limits and saved panel bounds are never rounded or moved.</p>
+          {fitProposal && (
+            <section className={`panel-fit-proposal ${fitProposal.requires_scale_or_page_change ? "panel-fit-proposal--blocked" : ""}`} aria-label={`Fit proposal for Panel ${fitProposal.display_id}`}>
+              <div>
+                <strong>Proposed limits for Panel {fitProposal.display_id}</strong>
+                <p>Saved: {formatDisplayNumber(fitProposal.existing_minimum_elevation)}–{formatDisplayNumber(fitProposal.existing_maximum_elevation)} ft · Required content: {formatDisplayNumber(fitProposal.required_minimum_elevation)}–{formatDisplayNumber(fitProposal.required_maximum_elevation)} ft · Proposed outward-rounded limits: {formatDisplayNumber(fitProposal.suggested_minimum_elevation)}–{formatDisplayNumber(fitProposal.suggested_maximum_elevation)} ft.</p>
+                <p>Saved scales remain 1″={formatDisplayNumber(fitProposal.saved_horizontal_scale)} ft horizontal and 1″={formatDisplayNumber(fitProposal.saved_vertical_scale)} ft vertical. Page: {fitProposal.page_size}.</p>
+                <p><strong>Physical sheet:</strong> {formatDisplayNumber(fitProposal.sheet_capacity.paper_width_inches)}×{formatDisplayNumber(fitProposal.sheet_capacity.paper_height_inches)} in; usable plot {formatDisplayNumber(fitProposal.sheet_capacity.usable_plot_width_inches)}×{formatDisplayNumber(fitProposal.sheet_capacity.usable_plot_height_inches)} in. The proposed limits require {formatDisplayNumber(fitProposal.sheet_capacity.required_plot_width_inches)}×{formatDisplayNumber(fitProposal.suggested_required_plot_height_inches)} in, leaving {formatDisplayNumber(fitProposal.sheet_capacity.remaining_horizontal_clearance_inches)} in horizontal and {formatDisplayNumber(fitProposal.suggested_vertical_clearance_inches)} in vertical clearance.</p>
+                {fitProposal.requires_scale_or_page_change ? (
+                  <p className="panel-fit-tradeoff"><strong>Separate engineering decision required.</strong> The {formatDisplayNumber(fitProposal.suggested_span)} ft proposed span exceeds the {formatDisplayNumber(fitProposal.physical_vertical_capacity)} ft physical capacity. Minimum vertical scale for this rounded proposal is approximately 1″={formatDisplayNumber(fitProposal.minimum_vertical_scale_for_suggestion)} ft, or select a taller page. No scale will be changed here.</p>
+                ) : <p>This only updates the draft elevation limits. It does not approve the panel until you review and click Apply. Alternatives remain explicit: select a larger sheet, change scale, or split/redesign the panel.</p>}
+                {fitProposal.responsible_content.length > 0 && <details><summary>Content outside saved limits ({fitProposal.responsible_content.length})</summary><ul>
+                  {fitProposal.responsible_content.map((item) => <li key={item.identity}>{item.label}: {formatDisplayNumber(item.minimum_elevation)}–{formatDisplayNumber(item.maximum_elevation)} ft</li>)}
+                </ul></details>}
+              </div>
+              <div className="panel-fit-proposal-actions">
+                <button type="button" onClick={() => setFitProposal(null)}>Cancel Proposal</button>
+                <button type="button" disabled={fitProposal.requires_scale_or_page_change} onClick={acceptFitProposal}>Use Suggested Limits</button>
+              </div>
+            </section>
+          )}
           {selectedPanelIndex != null && draftPanels[selectedPanelIndex] && (
             <div className="panel-move-controls" aria-label={`Move Panel ${draftPanels[selectedPanelIndex].panel}`}>
               <strong>Move P{draftPanels[selectedPanelIndex].panel}</strong>
@@ -776,6 +981,7 @@ export default function PanelSetupDialog({
                     <th>Ending Station</th>
                     <th>Starting Elevation</th>
                     <th>Ending Elevation</th>
+                    <th>Content Review</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -834,6 +1040,13 @@ export default function PanelSetupDialog({
                           onChange={(e) => updateNumericInput(index, "end_elevation", e.target.value)}
                           onBlur={() => commitNumericInput(index, "end_elevation")}
                         />
+                      </td>
+                      <td className="panel-content-status">
+                        {analysisByPanel.get(panel.panel)
+                          ? analysisByPanel.get(panel.panel)!.existing_panel_valid
+                            ? <span className="panel-content-status--valid">Fits content</span>
+                            : <span className="panel-content-status--review">Review required</span>
+                          : <span>Not analyzed</span>}
                       </td>
                     </tr>
                   ))}

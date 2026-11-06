@@ -24,17 +24,18 @@ from ..core.merge import merge_reaches, compute_cumdist, MergedReach
 from ..core.rasplot_db import (
     RasplotDatabase, WorkHeader, WorkingRow, Landmark, PanelDef, ProfileMeta,
     build_db_from_plan, build_working_from_plan, auto_letter, apply_node_names, reletter_from,
-    recalc_cumdist, fix_drawdowns, auto_panels, panel_coverage,
+    recalc_cumdist, fix_drawdowns, detect_drawdowns, auto_panels, panel_coverage,
     PAGE_SIZES, plot_usable_size, DEFAULT_FREQUENCIES, model_station_extent,
     normalize_panel_suffix,
 )
 
 from ..core.local_state import LocalRoute, owned_path
 from ..core.errors import AppError, log
-from ..core.state_contract import require_stationing, seal_stationing, review_panels, validate_collection, panels_stale
+from ..core.state_contract import require_stationing, seal_stationing, review_panels, validate_collection, panels_stale, mark_panels_review_required
 from ..core.model_topology import (
     ModelContext, create_flooding_source, continuous_distances, stable_id,
 )
+from ..core.compatibility import apply_plan_compatibility
 
 router = APIRouter(prefix="/api", route_class=LocalRoute)
 
@@ -65,6 +66,7 @@ def _session_db(sid: str) -> RasplotDatabase:
             raise HTTPException(409, "This model contains multiple reaches. Select a reach or construct a validated flooding source before engineering operations.")
         header = sess.get("header")
         sess["db"] = build_db_from_plan(plan, reach_idx=reach_idx, header=header)
+        apply_plan_compatibility(sess["plan"], sess["db"])
     return sess["db"]
 
 
@@ -77,6 +79,7 @@ def _rebuild_db(sid: str, reach_idx: int = 0) -> RasplotDatabase:
     if reach_idx in cached:
         sess["db"] = cached[reach_idx]
         sess["reach_idx"] = reach_idx
+        apply_plan_compatibility(sess["plan"], cached[reach_idx])
         return cached[reach_idx]
     # A different reach owns its edits, revision limits and manual panels.
     # preserve project metadata and profile style only
@@ -113,6 +116,7 @@ def _rebuild_db(sid: str, reach_idx: int = 0) -> RasplotDatabase:
     cached[reach_idx] = db
     sess["db"] = db
     sess["reach_idx"] = reach_idx
+    apply_plan_compatibility(sess["plan"], db)
     return db
 
 
@@ -326,6 +330,7 @@ def open_source(req: OpenRequest) -> dict:
             db = build_db_from_plan(plan, reach_idx=0, header=header)
         except ValueError as exc:
             raise HTTPException(400, f"Cannot validate working cross sections: {exc}") from exc
+    apply_plan_compatibility(plan, db)
     from ..core.local_state import cleanup_sessions, SESSION_LIMIT
     cleanup_sessions()
     if len(_SESSIONS) >= SESSION_LIMIT:
@@ -404,11 +409,18 @@ def list_reaches(sid: str) -> dict:
                 "upstream_connection": asdict(by_name[(r.river, r.reach)].upstream) if (r.river, r.reach) in by_name else None,
                 "downstream_connection": asdict(by_name[(r.river, r.reach)].downstream) if (r.river, r.reach) in by_name else None,
                 "topology_status": by_name[(r.river, r.reach)].topology_status if (r.river, r.reach) in by_name else "UNKNOWN",
+                "component_id": by_name[(r.river, r.reach)].component_id if (r.river, r.reach) in by_name else None,
+                "source_order_status": r.source_order_status,
+                "source_order_provenance": r.source_order_provenance,
             }
             for r in plan.reaches
         ],
         "junctions": [asdict(v) for v in topology.junctions.values()] if topology else [],
         "connections": [asdict(v) for v in topology.connections.values()] if topology else [],
+        "components": topology.components if topology else [],
+        "cycle_reach_ids": topology.cycle_reach_ids if topology else [],
+        "branch_junction_ids": topology.branch_junction_ids if topology else [],
+        "topology_warnings": topology.warnings if topology else [],
     }
 
 
@@ -493,6 +505,10 @@ def commit_flooding_source(sid: str, req: FloodingSourceRequest) -> dict:
                for xs in cross_sections]
     header = deepcopy(session.get("header") or WorkHeader())
     db = build_db_from_plan(engineering_plan, reach_idx=0, header=header, cumdist=cumdist)
+    # Auto-generated panels for a newly selected route are not reviewed
+    # engineering evidence. Route selection changes stationing, junctions and
+    # structure membership, so require an explicit Panel Setup review.
+    mark_panels_review_required(db)
     db.header.stream_name = req.display_name.strip()
     db.flooding_source = source.to_dict()
     db.distance_ledger = result.to_dict()
@@ -502,6 +518,7 @@ def commit_flooding_source(sid: str, req: FloodingSourceRequest) -> dict:
     session["db"] = db
     session["reach_idx"] = 0
     session.pop("reach_databases", None)
+    apply_plan_compatibility(plan, db)
     return {
         "flooding_source": source.to_dict(),
         "continuous_distance": result.to_dict(),
@@ -556,6 +573,10 @@ def get_profile(
             working_struct_rows.append(r)
 
     values_by_profile = {p.key: p.values_by_identity() for p in selected}
+    drawdown_findings = {
+        (str(item["xs_identity"]), item["profile_key"]): item
+        for item in detect_drawdowns(profile_rows, [p.key for p in selected])
+    }
     letter_list = _assign_label_letters(xs_list, [s.rs for s in reach.structures], every=label_every)
     out_xs = []
     for i, xs in enumerate(xs_list):
@@ -567,6 +588,14 @@ def get_profile(
             label_letter = working_row.label_letter
             label_text = working_row.label_text
             wsel_by_profile = {p.key: working_row.profiles.get(p.key) for p in selected}
+            raw_wsel_by_profile = {p.key: working_row.raw_profiles.get(p.key) for p in selected}
+            adjustment_by_profile = {
+                p.key: next((item for item in reversed(working_row.adjustments)
+                             if item.get("profile_key") == p.key
+                             or item.get("profile_id") == p.profile_id), None)
+                for p in selected
+            }
+            drawdown_by_profile = {p.key: drawdown_findings.get((working_row.source_identity, p.key)) for p in selected}
         else:
             length_channel = xs.length_channel if i < len(xs_list) - 1 else 0.0
             cumdist_i = cumdist[i]
@@ -574,6 +603,9 @@ def get_profile(
             label_letter = letter_list[i]
             label_text = None
             wsel_by_profile = {p.key: values_by_profile[p.key][xs.identity] for p in selected}
+            raw_wsel_by_profile = dict(wsel_by_profile)
+            adjustment_by_profile = {p.key: None for p in selected}
+            drawdown_by_profile = {p.key: None for p in selected}
         main_wsel = wsel_by_profile[sel.key]
 
         row = {
@@ -589,6 +621,9 @@ def get_profile(
             "label_letter": label_letter,
             "label_text": label_text,
             "wsel_by_profile": wsel_by_profile,
+            "raw_wsel_by_profile": raw_wsel_by_profile,
+            "adjustment_by_profile": adjustment_by_profile,
+            "drawdown_by_profile": drawdown_by_profile,
             "hydraulic_values": working_row.hydraulic_values if working_row else {},
             "adjustments": working_row.adjustments if working_row else [],
             "ground_provenance": xs.ground_provenance,
@@ -598,6 +633,8 @@ def get_profile(
     out_struct = []
     if db is not None and working_struct_rows:
         for row in working_struct_rows:
+            source_name = str((row.structure_model.source if row.structure_model else {}).get("name", "") or "").strip()
+            reviewer_name = (row.label_text or "").strip()
             out_struct.append({
                 "structure_id": row.structure_model.identity if row.structure_model else None,
                 "row_identity": row.row_identity,
@@ -605,13 +642,17 @@ def get_profile(
                 "support_reason": row.structure_model.reason if row.structure_model else "Missing normalized source",
                 "occupied_interval": row.structure_model.occupied_interval if row.structure_model else None,
                 "containing_interval": row.structure_model.bounds if row.structure_model else None,
-                "geometry_role": "FACE" if row.structure_model and row.structure_model.type == "CULVERT" else "ASSOCIATION_ONLY",
+                "geometry_role": "SOURCE_FACES" if row.structure_model and row.structure_model.faces else "ASSOCIATION_ONLY",
+                "source_faces": [dict(face) for face in (row.structure_model.faces if row.structure_model else [])],
                 "hydraulic_values": row.structure_model.hydraulic_values if row.structure_model else {},
                 "river": row.river,
                 "reach": row.reach,
                 "rs": row.rs,
                 "type": row.struc,
-                "name": row.label_text or row.struc or row.rs,
+                "name": reviewer_name or source_name or row.struc or row.rs,
+                "source_name": source_name or None,
+                "reviewer_name": reviewer_name or None,
+                "name_provenance": "USER_ENTERED" if reviewer_name else ("SOURCE" if source_name else "UNNAMED"),
                 "weir_width": row.weir_width if row.weir_width is not None else row.length_chnl,
                 "low_chord": row.low_chord,
                 "high_chord": row.high_chord,
@@ -636,6 +677,9 @@ def get_profile(
         "vertical_datum": db.header.vertical_datum or "UNKNOWN",
         "datum_provenance": db.header.datum_provenance,
         "source_units": db.source_units,
+        "working_units": db.working_units,
+        "unit_contract": db.unit_contract,
+        "unit_conversion_status": db.unit_conversion_status,
         "profile": sel.key,
         "profiles_selected": [p.profile_id for p in selected],
         "profile_segments": {p.profile_id: list(segments([(r["cumdist"], r["wsel_by_profile"][p.profile_id]) for r in out_xs])) for p in selected},
@@ -866,6 +910,12 @@ class PanelsReplace(BaseModel):
     page_size: str | None = None
 
 
+class PanelContentRequest(BaseModel):
+    panels: list[PanelIn]
+    rounding_increment: float = 5.0
+    page_size: str | None = None
+
+
 class ReachSelect(BaseModel):
     reach_idx: int = 0
     order: list[int] | None = None
@@ -895,9 +945,11 @@ def patch_working(sid: str, patches: list[WorkingPatch]) -> dict:
         row = by_id.get(patch.id)
         if row is None:
             raise HTTPException(400, f"Unknown working row {patch.id}")
-        if patch.xs_id is not None and (row.kind != "xs" or row.source_identity != patch.xs_id):
-            raise HTTPException(409, "Working-row identity no longer matches this cross section. Reload the profile before editing.")
-        if row.kind == "struct" and patch.model_fields_set - {"id","label_letter","label_text"}:
+        if patch.xs_id is not None:
+            stable_identity = row.source_identity if row.kind == "xs" else row.row_identity
+            if stable_identity != patch.xs_id:
+                raise HTTPException(409, "Working-row identity no longer matches this source record. Reload the profile before editing.")
+        if row.kind == "struct" and patch.model_fields_set - {"id","xs_id","label_letter","label_text"}:
             raise HTTPException(400, "Structure geometry/hydraulics are source-derived; direct working-table edits cannot override normalized engineering evidence.")
         if "length_chnl" in patch.model_fields_set:
             try:
@@ -929,7 +981,19 @@ def patch_working(sid: str, patches: list[WorkingPatch]) -> dict:
         if p.label_letter is not None:
             r.label_letter = p.label_letter or None
         if p.label_text is not None:
-            r.label_text = p.label_text or None
+            label_text = p.label_text or None
+            if r.kind == "struct" and r.structure_model is not None:
+                # A structure name describes the normalized source structure,
+                # not an individual UP/DN face row. Keep both face records in
+                # agreement while retaining their independent source geometry.
+                structure_identity = r.structure_model.identity
+                for structure_row in db.working:
+                    if (structure_row.kind == "struct"
+                            and structure_row.structure_model is not None
+                            and structure_row.structure_model.identity == structure_identity):
+                        structure_row.label_text = label_text
+            else:
+                r.label_text = label_text
         if p.length_chnl is not None:
             r.length_chnl = p.length_chnl
         if "minchel" in p.model_fields_set:
@@ -1261,6 +1325,22 @@ def get_panels(sid: str) -> dict:
     return {"panels": [p.to_dict() for p in _session_db(sid).panels]}
 
 
+@router.post("/db/{sid}/panels/content-analysis")
+def analyze_panels(sid: str, req: PanelContentRequest) -> dict:
+    db = _session_db(sid)
+    try:
+        require_stationing(db)
+        from ..core.state_contract import require_revision
+        from ..core.export_geometry import analyze_panel_content
+        revision = require_revision(db)
+        panels = [PanelDef(**item.model_dump()) for item in req.panels]
+        return analyze_panel_content(
+            db, panels, page_size=req.page_size or db.header.page_size,
+            revision=revision, rounding_increment=req.rounding_increment)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get("/db/{sid}/auto-end")
 def get_auto_end(sid: str, start_station: float = Query(...)) -> dict:
     db = _session_db(sid)
@@ -1346,6 +1426,8 @@ def put_panels(sid: str, req: PanelsReplace) -> dict:
         for panel in panels:
             plot_dimensions(panel, page)
         if not req.draft:
+            if req.page_size is not None:
+                db.header.page_size = req.page_size
             db.panels = panels
             review_panels(db)
         return {"panels": [p.to_dict() for p in panels], "draft": req.draft, "panels_stale": panels_stale(db)}
@@ -1392,4 +1474,18 @@ def structure_preflight(sid: str, start: float | None = None, end: float | None 
     if not math.isfinite(lo) or not math.isfinite(hi) or lo >= hi:
         raise HTTPException(400,"Structure preflight requires finite increasing station limits.")
     records = preflight(db.working,lo,hi)
+    for record in records:
+        reason = str(record.get("reason") or "")
+        missing = []
+        for field, tokens in {
+            "source identity": ("identity", "association", "normalized source"),
+            "river/reach/station": ("river/reach", "river/reach/rs"),
+            "opening geometry": ("shape", "rise", "span", "barrel", "opening"),
+            "roadway/deck geometry": ("deck", "roadway", "chord"),
+            "source connectivity": ("connect", "interval", "placement"),
+        }.items():
+            if any(token in reason.lower() for token in tokens):
+                missing.append(field)
+        record["missing_fields"] = missing
+        record["diagnostic_preview_available"] = bool(record.get("faces"))
     return {"structures":records,"inventory":db.structure_inventory,"can_export":db.structure_inventory.get("state") in ("VERIFIED_NONE","VERIFIED_PARSED") and not any(r["affects_range"] and r["status"] != "VALIDATED" for r in records)}

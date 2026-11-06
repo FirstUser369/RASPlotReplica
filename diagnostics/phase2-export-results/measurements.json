@@ -1,0 +1,96 @@
+{
+  "pdf_plot_rectangle_points": [
+    126.0,
+    72.0,
+    936.0,
+    648.0
+  ],
+  "pdf_plot_inches": [
+    13.0,
+    9.0
+  ],
+  "pdf_page_points": [
+    1224.0,
+    792.0
+  ],
+  "pdf_point_tolerance": 0.001,
+  "dxf_inch_tolerance": 1e-08,
+  "versions": {
+    "R2013": {
+      "acadver": "AC1027",
+      "INSUNITS": 1,
+      "MEASUREMENT": 0,
+      "profile_start": [
+        1.75,
+        1.0
+      ],
+      "profile_end": [
+        14.75,
+        10.0
+      ],
+      "x_inches": 13.0,
+      "y_inches": 9.0
+    },
+    "R2010": {
+      "acadver": "AC1024",
+      "INSUNITS": 1,
+      "MEASUREMENT": 0,
+      "profile_start": [
+        1.75,
+        1.0
+      ],
+      "profile_end": [
+        14.75,
+        10.0
+      ],
+      "x_inches": 13.0,
+      "y_inches": 9.0
+    },
+    "R2007": {
+      "acadver": "AC1021",
+      "INSUNITS": 1,
+      "MEASUREMENT": 0,
+      "profile_start": [
+        1.75,
+        1.0
+      ],
+      "profile_end": [
+        14.75,
+        10.0
+      ],
+      "x_inches": 13.0,
+      "y_inches": 9.0
+    },
+    "R2000": {
+      "acadver": "AC1015",
+      "INSUNITS": 1,
+      "MEASUREMENT": 0,
+      "profile_start": [
+        1.75,
+        1.0
+      ],
+      "profile_end": [
+        14.75,
+        10.0
+      ],
+      "x_inches": 13.0,
+      "y_inches": 9.0
+    }
+  },
+  "baselines": {
+    "Muncie": {
+      "extent_ft": 15458.599994659424
+    },
+    "North": {
+      "extent_ft": 3229.0599632263184,
+      "culvert_spacing_ft": 110.0
+    }
+  },
+  "tests": {
+    "total": 54,
+    "passed": 54,
+    "failed": 0,
+    "skipped": 0,
+    "new_phase2_tests": 20
+  }
+}

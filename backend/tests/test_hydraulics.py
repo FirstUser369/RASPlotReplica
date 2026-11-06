@@ -13,7 +13,7 @@ from fastapi.encoders import jsonable_encoder
 from matplotlib.axes import Axes
 from backend.app.core.hydraulics import normalize_value,segments,ground_value,hydraulic_preflight
 from backend.app.core.hdf_reader import HdfReader,ProfileResult,CrossSection,ReachGeometry,AlignmentError,plan_to_dict
-from backend.app.core.rasplot_db import build_db_from_plan,fix_drawdowns,WorkHeader
+from backend.app.core.rasplot_db import build_db_from_plan,fix_drawdowns,detect_drawdowns,WorkHeader
 from backend.app.core.dxf_export import export_dxf
 from backend.app.routers.report import render_profile_pdf_from_db
 from backend.app.routers.hecras_api import _SESSIONS,get_profile,put_profiles_meta,ProfileMetaUpdate,patch_working,post_fix_drawdowns,WorkingPatch
@@ -41,6 +41,10 @@ class HydraulicTests(unittest.TestCase):
         self.assertEqual(normalize_value(0.),{"value":0.,"state":"VALID","raw":0.})
         plan,db=model();p=plan.profiles[0];v=db.working[0].hydraulic_values[p.profile_id]
         self.assertEqual(v["xs_identity"],("R","A","500"));self.assertEqual(v["profile_id"],p.profile_id)
+
+    def test_new_project_does_not_generate_cross_section_letters(self):
+        _, db = model()
+        self.assertTrue(all(row.label_letter is None for row in db.working))
 
     def test_nan_is_missing_not_zero(self):
         self.assertEqual(normalize_value(float("nan"))["state"],"NONFINITE")
@@ -105,6 +109,37 @@ class HydraulicTests(unittest.TestCase):
         fix_drawdowns(db.working);self.assertEqual(len(db.working[0].adjustments),1)
         self.assertEqual(raw,[r.raw_profiles for r in db.working])
 
+    def test_drawdown_detection_is_nonmutating_and_matches_fix_rule(self):
+        _, db = model(values=[11.,14.,13.,12.,11.])
+        before = [dict(row.profiles) for row in db.working]
+        findings = detect_drawdowns(db.working)
+        self.assertTrue(findings)
+        self.assertEqual(before, [row.profiles for row in db.working])
+        affected = {(item["xs_identity"], item["profile_key"]) for item in findings}
+        fix_drawdowns(db.working)
+        changed = {(row.source_identity, key) for row, prior in zip(db.working, before)
+                   for key, value in row.profiles.items() if value != prior.get(key)}
+        self.assertEqual(affected, changed)
+
+    def test_profile_response_separates_source_and_adjusted_wsel(self):
+        plan, db = self.session(values=[11.,14.,13.,12.,11.])
+        fix_drawdowns(db.working)
+        profile_id = plan.profiles[0].profile_id
+        response = get_profile("hydraulic-test", profile=None, profiles=json.dumps([profile_id]), reach_idx=0, label_every=5)
+        first = response["cross_sections"][0]
+        self.assertEqual(first["raw_wsel_by_profile"][profile_id], 11.)
+        self.assertEqual(first["wsel_by_profile"][profile_id], 14.)
+        self.assertEqual(first["adjustment_by_profile"][profile_id]["original_value"], 11.)
+
+    def test_profile_response_marks_uncorrected_drawdown(self):
+        plan, _ = self.session(values=[11.,14.,13.,12.,11.])
+        profile_id = plan.profiles[0].profile_id
+        response = get_profile("hydraulic-test", profile=None, profiles=json.dumps([profile_id]), reach_idx=0, label_every=5)
+        findings = [row["drawdown_by_profile"][profile_id] for row in response["cross_sections"]
+                    if row["drawdown_by_profile"][profile_id] is not None]
+        self.assertTrue(findings)
+        self.assertEqual(findings[0]["reason"], "UPSTREAM_BELOW_CARRIED_DOWNSTREAM_WSEL")
+
     def test_drawdowns_does_not_cross_missing_section(self):
         _,db=model(values=[11.,11.,None,15.,14.]);fix_drawdowns(db.working)
         self.assertEqual(db.working[1].profiles[db.profiles[0].profile_id],11.)
@@ -151,11 +186,11 @@ class HydraulicTests(unittest.TestCase):
         self.assertEqual(db.header.source_datum,"UNKNOWN")
         self.assertIn("UNKNOWN",hydraulic_preflight(db,db.profiles)["warnings"][0])
 
-    def test_si_is_rejected_before_processing(self):
-        path=Path(self.tmp.name)/"si.hdf"
+    def test_unknown_units_are_rejected_before_processing(self):
+        path=Path(self.tmp.name)/"unknown-units.hdf"
         with h5py.File(path,"w") as f:
-            f.create_group("Geometry");f.attrs["Units System"]="SI Units"
-        with self.assertRaisesRegex(AlignmentError,"SI conversion"):
+            f.create_group("Geometry");f.attrs["Units System"]="Unsupported Planetary Units"
+        with self.assertRaisesRegex(AlignmentError,"Unsupported source unit system"):
             HdfReader(path).read_plan()
 
     def test_unknown_units_block_export(self):
