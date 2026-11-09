@@ -31,15 +31,11 @@ export function cadReviewAvailability({
   };
   if (selectedPanelCount === 0) return {
     enabled: false,
-    message: "Select one saved panel in the Panels section.",
-  };
-  if (selectedPanelCount > 1) return {
-    enabled: false,
-    message: "CAD Review exports one panel at a time. Clear Selection, then select exactly one panel.",
+    message: "Select one or more saved panels, or use Export All Panels.",
   };
   return {
     enabled: true,
-    message: "Ready: one reviewed saved panel will export as raw station/elevation DXF with aligned PNG/PGW.",
+    message: `Ready: ${selectedPanelCount} reviewed panel${selectedPanelCount === 1 ? "" : "s"} will export as separate raw-coordinate DXF/PNG/PGW sets in one ZIP.`,
   };
 }
 
@@ -230,14 +226,40 @@ export default function ExportDialog({
     }
   }
 
-  async function doCadReviewExport() {
-    if (savedPanels.length === 0 || selectedPanelNumbers.length !== 1) {
-      setError("Select exactly one saved panel for the CAD Review Package.");
+  async function doCadReviewExport(allPanels = false) {
+    const panelNumbers = allPanels
+      ? savedPanels.map((panel) => panel.panel)
+      : selectedPanelNumbers;
+    if (panelNumbers.length === 0) {
+      setError("Select at least one saved panel for the CAD Review Package.");
       return;
     }
-    await runExport("CAD Review Package", () => api.exportCadReviewPackage(sessionId, {
-      ...exportOptions(), use_current_view: false, fit_to_one_panel: false,
-    }));
+    await runBackgroundExport("CAD Review Package", async () => {
+      const options = {
+        ...exportOptions(), panel_numbers: panelNumbers,
+        use_current_view: false, fit_to_one_panel: false,
+      };
+      const job = await api.startCadReviewPackage(sessionId, options);
+      setExportStatus(job);
+      let current = job;
+      const operationVersion = contextVersion();
+      while (!("COMPLETED,FAILED,CANCELLED".split(",") as string[]).includes(current.state)) {
+        await new Promise(resolve => window.setTimeout(resolve, 400));
+        try {
+          assertContext(operationVersion);
+        } catch (error) {
+          await api.cancelExportJob(sessionId, job.job_id).catch(() => undefined);
+          throw error;
+        }
+        current = await api.getExportJob(sessionId, job.job_id);
+        setExportStatus(current);
+      }
+      if (current.state === "FAILED") throw new Error(current.error || current.message);
+      if (current.state === "CANCELLED") throw new Error("Export cancelled. No artifact was created.");
+      if (!current.result) throw new Error("Export completed without a downloadable artifact.");
+      setLastInfo(`panels=${panelNumbers.length} · raw station/elevation coordinates · manifest included`);
+      return current.result;
+    });
   }
 
   function togglePanel(panelNumber: number) {
@@ -353,7 +375,7 @@ export default function ExportDialog({
           {format === "dxf" && <section>
             <h3>DXF Options</h3>
             <div className="export-fields"><label>DXF version<select value={dxfVer} onChange={e => setDxfVer(e.target.value)}>{dxfVersions.map(v => <option key={v}>{v}</option>)}</select></label></div>
-            <p className="export-hint">R2013 is recommended for current AutoCAD workflows. Engineering DXF uses paper-inch model-space coordinates and preserves the validated sheet scale. CAD Review Package is a separate single-panel R12 export using raw station/elevation coordinates with aligned PNG/PGW files.</p>
+            <p className="export-hint">R2013 is recommended for current AutoCAD workflows. Engineering DXF uses paper-inch model-space coordinates and preserves the validated sheet scale. CAD Review Package is a separate R12 export with one raw station/elevation DXF + aligned PNG/PGW set per included panel.</p>
             <div className="export-checks">
               <label><input type="checkbox" checked={grid} onChange={e => setGrid(e.target.checked)} /> Include grid</label>
               <label><input type="checkbox" checked={titleBlock} onChange={e => setTitleBlock(e.target.checked)} /> Include title block</label>
@@ -370,7 +392,10 @@ export default function ExportDialog({
           <div className="export-actions">
             <div className="export-secondary">
               <button disabled={!cadReview.enabled} aria-describedby="cad-review-requirement"
-                title={cadReview.message} onClick={doCadReviewExport}>Export CAD Review Package</button>
+                title={cadReview.message} onClick={() => doCadReviewExport(false)}>Export CAD Review Package</button>
+              <button disabled={disabled || panelsStale || savedPanels.length === 0}
+                title="Export every reviewed saved panel; panels excluded in Panel Setup are not included."
+                onClick={() => doCadReviewExport(true)}>Export All Panels</button>
               <span id="cad-review-requirement" role="status">{cadReview.message}</span>
               <span>FDT / FIRM disabled: engineering and regulatory validation pending.</span>
             </div>

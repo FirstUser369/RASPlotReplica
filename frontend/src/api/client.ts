@@ -526,6 +526,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ session_id: sid, ...opts, format: "cad-review-package" }),
     }),
+  startCadReviewPackage: (sid: string, opts: ExportOptions) =>
+    req<ExportJobResponse>(`/api/report/cad-review-package/start`, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sid, ...opts, format: "cad-review-package" }),
+    }),
   buildFdt: (sid: string, body: any = {}) =>
     req<ExportResponse>(`/api/report/fdt.pdf`, {
       method: "POST",

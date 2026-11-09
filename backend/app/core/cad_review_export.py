@@ -5,6 +5,7 @@ This is intentionally separate from the validated paper-inch engineering DXF.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 from pathlib import Path
 import math
@@ -24,6 +25,7 @@ from .dxf_export import _hex_to_aci
 
 
 CAD_REVIEW_DPI = 300
+CAD_REVIEW_MANIFEST = "CAD_Review_manifest.json"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -256,40 +258,116 @@ def export_cad_review_package(
     status_callback=None,
     cancel_check=None,
 ) -> dict:
-    """Write aligned R12 DXF, PNG and PGW from one already-validated snapshot."""
+    """Write aligned R12 DXF/PNG/PGW sets from one validated snapshot.
+
+    ``panel`` retains the original single-panel call contract and may also be
+    an ordered panel sequence.  Every member is rendered from the same
+    immutable drawing definition and revision interval.
+    """
     status_callback = status_callback or (lambda _stage, _message: None)
     cancel_check = cancel_check or (lambda: None)
     out_path = Path(out_path)
     status_callback("DRAWING_DEFINITION", "Building the immutable engineering drawing definition.")
     cancel_check()
+    panels = list(panel) if isinstance(panel, (list, tuple)) else [panel]
+    if not panels:
+        raise ValueError("CAD Review Package requires at least one panel.")
     drawing = build_engineering_drawing(
-        db, [panel], [profile.profile_id for profile in selected],
+        db, panels, [profile.profile_id for profile in selected],
         revision=revision, page_size=db.header.page_size, config=drawing_config,
         cancel_check=cancel_check)
-    drawing_panel = drawing.panels[0]
-    bounds = CadReviewBounds(
-        drawing_panel.clip_bounds.x_min, drawing_panel.clip_bounds.x_max,
-        drawing_panel.clip_bounds.y_min, drawing_panel.clip_bounds.y_max)
-    width, height = bounds.raster_size(panel.h_scale, panel.v_scale)
-    stem = f"CAD_Review_Panel_{panel.panel}"
     with tempfile.TemporaryDirectory(prefix="rasplot-cad-review-") as directory:
-        status_callback("RENDERING", "Rendering aligned CAD Review DXF and PNG files.")
-        cancel_check()
         root = Path(directory)
-        dxf_path, png_path, pgw_path = (root / f"{stem}.{suffix}" for suffix in ("dxf", "png", "pgw"))
-        _write_dxf(dxf_path, drawing, drawing_panel, bounds)
-        cancel_check()
-        _write_png(png_path, drawing, drawing_panel, bounds, width, height)
-        cancel_check()
-        pgw_path.write_text(bounds.world_file(width, height), encoding="ascii", newline="\n")
+        files: list[str] = []
+        panel_results = []
+        for panel_definition, drawing_panel in zip(panels, drawing.panels, strict=True):
+            status_callback(
+                "RENDERING",
+                f"Rendering aligned CAD Review files for Panel {drawing_panel.display_id}.")
+            cancel_check()
+            bounds = CadReviewBounds(
+                drawing_panel.clip_bounds.x_min, drawing_panel.clip_bounds.x_max,
+                drawing_panel.clip_bounds.y_min, drawing_panel.clip_bounds.y_max)
+            width, height = bounds.raster_size(
+                panel_definition.h_scale, panel_definition.v_scale)
+            stem = f"CAD_Review_Panel_{int(panel_definition.panel)}"
+            dxf_path, png_path, pgw_path = (
+                root / f"{stem}.{suffix}" for suffix in ("dxf", "png", "pgw"))
+            _write_dxf(dxf_path, drawing, drawing_panel, bounds)
+            cancel_check()
+            _write_png(png_path, drawing, drawing_panel, bounds, width, height)
+            cancel_check()
+            world_text = bounds.world_file(width, height)
+            pgw_path.write_text(world_text, encoding="ascii", newline="\n")
+            panel_files = [dxf_path.name, png_path.name, pgw_path.name]
+            files.extend(panel_files)
+            panel_results.append({
+                "panel_number": int(panel_definition.panel),
+                "panel_suffix": panel_definition.panel_suffix,
+                "display_id": drawing_panel.display_id,
+                "bounds": {"x_min": bounds.x_min, "x_max": bounds.x_max,
+                           "y_min": bounds.y_min, "y_max": bounds.y_max},
+                "scale": {"horizontal_working_ft_per_paper_inch": panel_definition.h_scale,
+                          "vertical_working_ft_per_paper_inch": panel_definition.v_scale,
+                          "applied_to_raw_dxf_coordinates": False},
+                "raster": {"width_px": width, "height_px": height,
+                           "dpi": CAD_REVIEW_DPI},
+                "world_file_affine": [float(value) for value in world_text.splitlines()],
+                "files": {"dxf": dxf_path.name, "png": png_path.name,
+                          "pgw": pgw_path.name},
+            })
+        source_profiles = [{
+            "profile_id": profile.profile_id,
+            "source_name": profile.source_name or profile.name,
+            "result_type": profile.result_type,
+            "source_file": Path(profile.source_path).name if profile.source_path else "",
+            "source_dataset": profile.source_dataset,
+        } for profile in selected]
+        flooding_source = dict(getattr(db, "flooding_source", {}) or {})
+        manifest = {
+            "schema": "rasplot-cad-review-package-v1",
+            "coordinate_contract": {
+                "x": "canonical cumulative engineering distance",
+                "y": "canonical engineering elevation",
+                "working_units": db.working_units,
+                "source_units": db.source_units,
+                "engineering_dxf_paper_inches": False,
+                "crs": {"status": "UNKNOWN_NOT_DECLARED", "name": None},
+            },
+            "revision_limits": {"start_station": revision[0],
+                                "end_station": revision[1]},
+            "datum": {"label": db.header.vertical_datum or "UNKNOWN",
+                      "source_label": db.header.source_datum or "UNKNOWN",
+                      "provenance": db.header.datum_provenance or "UNKNOWN",
+                      "transformation_applied": False},
+            "source_provenance": {
+                "flooding_source": {
+                    key: flooding_source[key] for key in
+                    ("display_name", "naming_provenance", "reach_ids")
+                    if key in flooding_source
+                },
+                "profiles": source_profiles,
+                "unit_contract": dict(getattr(db, "unit_contract", {}) or {}),
+            },
+            "panels": panel_results,
+        }
+        manifest_path = root / CAD_REVIEW_MANIFEST
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n",
+            encoding="utf-8", newline="\n")
+        files.append(CAD_REVIEW_MANIFEST)
         status_callback("WRITING", "Writing the CAD Review package.")
         cancel_check()
         with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for path in (dxf_path, png_path, pgw_path):
-                archive.write(path, path.name)
+            for name in files:
+                cancel_check()
+                archive.write(root / name, name)
         warnings = tuple(drawing.warnings) + drawing.presentation.annotation_warnings
         for warning in drawing.presentation.annotation_warnings:
             _LOGGER.warning("CAD Review annotation warning: %s", warning)
-        return {"bounds": bounds, "width_px": width, "height_px": height,
-            "files": [f"{stem}.dxf", f"{stem}.png", f"{stem}.pgw"],
-            "warnings": warnings}
+        first = panel_results[0]
+        return {"bounds": CadReviewBounds(**first["bounds"]),
+            "width_px": first["raster"]["width_px"],
+            "height_px": first["raster"]["height_px"],
+            "panel_count": len(panel_results), "panels": panel_results,
+            "files": files, "manifest": manifest, "warnings": warnings}

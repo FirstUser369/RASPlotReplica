@@ -390,6 +390,7 @@ class IndustrialParkTopologyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, zipfile.ZipFile(package) as archive:
             expected = {f"CAD_Review_Panel_{panel.panel}.{suffix}"
                         for suffix in ("dxf", "png", "pgw")}
+            expected.add("CAD_Review_manifest.json")
             self.assertEqual(set(archive.namelist()), expected)
             archive.extractall(directory)
             root = Path(directory)

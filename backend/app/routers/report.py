@@ -306,7 +306,7 @@ class ExportOptions(BaseModel):
 
 
 class CadReviewPackageOptions(ExportOptions):
-    """One-panel raw station/elevation package for the CAD Review Editor."""
+    """Selected-panel raw station/elevation package for the CAD Review Editor."""
     format: str = "cad-review-package"
     use_current_view: bool = False
     fit_to_one_panel: bool = False
@@ -594,16 +594,25 @@ def cancel_profile_export(sid: str, job_id: str) -> dict:
 
 @router.post("/cad-review-package")
 def export_cad_review(req: CadReviewPackageOptions) -> dict:
-    """Export one validated panel as aligned raw-coordinate DXF/PNG/PGW."""
+    """Synchronously export selected validated CAD Review panels (back compatibility)."""
     if req.session_id not in _SESSIONS:
         raise HTTPException(404, "Unknown session")
-    db = deepcopy(_session_db(req.session_id))
+    return _export_cad_review_snapshot(req, deepcopy(_session_db(req.session_id)))
+
+
+def _export_cad_review_snapshot(req: CadReviewPackageOptions, db: RasplotDatabase,
+                                status_callback=None, cancel_check=None) -> dict:
+    """Validate and atomically render CAD Review sets from one immutable snapshot."""
+    status_callback = status_callback or (lambda _stage, _message: None)
+    cancel_check = cancel_check or (lambda: None)
+    status_callback("VALIDATION", "Validating CAD Review panel and engineering preflight state.")
+    cancel_check()
     require_artifact_capacity(req.session_id)
     state_version = engineering_version(db)
     if req.expected_engineering_version is not None and req.expected_engineering_version != state_version:
         raise HTTPException(409, "Engineering state changed since Export opened. Close and reopen Export to review the current state.")
-    if req.panel_numbers is None or len(req.panel_numbers) != 1:
-        raise HTTPException(400, "CAD Review Package requires exactly one selected saved panel.")
+    if req.panel_numbers is None or len(req.panel_numbers) < 1:
+        raise HTTPException(400, "CAD Review Package requires at least one selected saved panel.")
     try:
         require_stationing(db)
         revision = require_revision(db)
@@ -621,11 +630,20 @@ def export_cad_review(req: CadReviewPackageOptions) -> dict:
         raise HTTPException(400, str(exc)) from exc
 
     out_path = None
+    temporary_path = None
     try:
         out_path = os.path.join(_cache_dir(req.session_id), artifact_name("CAD_Review_Package", ".zip"))
-        result = export_cad_review_package(out_path, db, selected, panels[0], revision)
+        temporary_path = out_path + ".partial"
+        result = export_cad_review_package(
+            temporary_path, db, selected, panels, revision,
+            status_callback=status_callback, cancel_check=cancel_check)
+        cancel_check()
+        status_callback("FINALIZATION", "Finalizing the validated CAD Review package atomically.")
+        cancel_check()
+        os.replace(temporary_path, out_path)
+        temporary_path = None
         register_artifact(req.session_id, out_path)
-        bounds = result["bounds"]
+        first = result["panels"][0]
         return {
             "artifact_id": Path(out_path).stem,
             "session_id": req.session_id,
@@ -633,23 +651,47 @@ def export_cad_review(req: CadReviewPackageOptions) -> dict:
             "path": out_path,
             "size_bytes": os.path.getsize(out_path),
             "format": "cad-review-package",
-            "panel_count": 1,
-            "panel_number": panels[0].panel,
-            "bounds": {"x_min": bounds.x_min, "x_max": bounds.x_max,
-                       "y_min": bounds.y_min, "y_max": bounds.y_max},
+            "panel_count": len(panels),
+            "panel_number": panels[0].panel if len(panels) == 1 else None,
+            "panel_numbers": [panel.panel for panel in panels],
+            "bounds": first["bounds"],
             "width_px": result["width_px"], "height_px": result["height_px"],
-            "files": result["files"],
+            "files": result["files"], "panels": result["panels"],
         }
+    except ExportCancelled:
+        discard_failed_artifact(req.session_id, temporary_path)
+        discard_failed_artifact(req.session_id, out_path)
+        raise
     except OSError as exc:
+        discard_failed_artifact(req.session_id, temporary_path)
         discard_failed_artifact(req.session_id, out_path)
         raise AppError(500, "FILE_ACCESS", "CAD Review Package could not be written. Check temporary-folder access and free disk space, then retry.") from exc
     except HTTPException:
+        discard_failed_artifact(req.session_id, temporary_path)
         discard_failed_artifact(req.session_id, out_path)
         raise
     except Exception as exc:
+        discard_failed_artifact(req.session_id, temporary_path)
         discard_failed_artifact(req.session_id, out_path)
         log.exception("CAD Review Package renderer failed after preflight")
         raise AppError(500, "EXPORT_FAILURE", "CAD Review Package rendering failed after engineering preflight. No successful artifact was registered.") from exc
+
+
+@router.post("/cad-review-package/start")
+def start_cad_review_export(req: CadReviewPackageOptions) -> dict:
+    """Start a cancellable multipanel CAD Review export from an immutable snapshot."""
+    if req.session_id not in _SESSIONS:
+        raise HTTPException(404, "Unknown session")
+    snapshot = deepcopy(_session_db(req.session_id))
+    try:
+        job = start_export_job(
+            req.session_id, req.format,
+            lambda update, check: _export_cad_review_snapshot(
+                req, snapshot, update, check),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return job.public()
 
 
 # Back-compat alias

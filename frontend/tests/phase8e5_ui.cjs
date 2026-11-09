@@ -389,10 +389,14 @@ check(() => {
 check(() => {
   assert.match(exportDialogSource, /savedPanelCount === 0[\s\S]*Open Panel Setup, create or load panels/);
   assert.match(exportDialogSource, /panelsStale[\s\S]*Saved panels require review/);
-  assert.match(exportDialogSource, /selectedPanelCount === 0[\s\S]*Select one saved panel/);
-  assert.match(exportDialogSource, /selectedPanelCount > 1[\s\S]*exports one panel at a time/);
+  assert.match(exportDialogSource, /selectedPanelCount === 0[\s\S]*Select one or more saved panels/);
+  assert.match(exportDialogSource, /selectedPanelCount.*reviewed panel/);
   assert.match(exportDialogSource, /disabled=\{!cadReview\.enabled\}[\s\S]*aria-describedby="cad-review-requirement"/);
-  assert.match(exportDialogSource, /raw station\/elevation DXF with aligned PNG\/PGW/);
+  assert.match(exportDialogSource, /raw-coordinate DXF\/PNG\/PGW sets in one ZIP/);
+  assert.match(exportDialogSource, /Export All Panels/);
+  assert.match(exportDialogSource, /startCadReviewPackage/);
+  assert.match(exportDialogSource, /panel_numbers: panelNumbers/);
+  assert.match(exportDialogSource, /manifest included/);
 });
 check(() => {
   assert.match(apiSource, /panels\/content-analysis/);

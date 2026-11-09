@@ -1,18 +1,22 @@
 import tempfile
+import time
 import unittest
 import zipfile
+import json
 from pathlib import Path
 
 import ezdxf
 from PIL import Image
 from fastapi import HTTPException
 
-from backend.app.core.cad_review_export import CadReviewBounds, export_cad_review_package
+from backend.app.core.cad_review_export import CAD_REVIEW_MANIFEST, CadReviewBounds, export_cad_review_package
+from backend.app.core.export_jobs import ExportCancelled, get_export_job
 from backend.app.core.engineering_drawing import DrawingBuildConfig, build_engineering_drawing
 from backend.app.core.local_state import owned_path
 from backend.app.core.rasplot_db import Landmark, PanelDef, ProfileMeta, RasplotDatabase, WorkingRow
 from backend.app.routers.hecras_api import _SESSIONS
-from backend.app.routers.report import CadReviewPackageOptions, export_cad_review
+from backend.app.core.export_jobs import get_export_job
+from backend.app.routers.report import CadReviewPackageOptions, export_cad_review, start_cad_review_export
 
 
 def sample_db(name="Source A"):
@@ -41,7 +45,8 @@ class CadReviewExportTests(unittest.TestCase):
         result = export_cad_review_package(target, db, db.profiles, db.panels[0], (0.0, 100.0))
         with zipfile.ZipFile(target) as archive:
             self.assertEqual(set(archive.namelist()), {
-                "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw"})
+                "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw",
+                CAD_REVIEW_MANIFEST})
             archive.extractall(self.temp.name)
         doc = ezdxf.readfile(Path(self.temp.name) / "CAD_Review_Panel_4.dxf")
         self.assertEqual(doc.dxfversion, "AC1009")
@@ -87,7 +92,8 @@ class CadReviewExportTests(unittest.TestCase):
         result = export_cad_review_package(
             target, db, db.profiles, db.panels[0], (0., 100.))
         self.assertEqual(result["files"], [
-            "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw"])
+            "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw",
+            CAD_REVIEW_MANIFEST])
         with zipfile.ZipFile(target) as archive:
             self.assertEqual(archive.namelist(), result["files"])
             archive.extract("CAD_Review_Panel_4.dxf", self.temp.name)
@@ -104,7 +110,8 @@ class CadReviewExportTests(unittest.TestCase):
             session_id="cad-suffix-route", panel_numbers=[4], profile_names=["profile-a"]))
         self.assertEqual(result["panel_number"], 4)
         self.assertEqual(result["files"], [
-            "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw"])
+            "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw",
+            CAD_REVIEW_MANIFEST])
         with zipfile.ZipFile(result["path"]) as archive:
             archive.extract("CAD_Review_Panel_4.dxf", self.temp.name)
         doc = ezdxf.readfile(Path(self.temp.name) / "CAD_Review_Panel_4.dxf")
@@ -117,7 +124,7 @@ class CadReviewExportTests(unittest.TestCase):
         _SESSIONS["cad-second"] = {"db": second}
         self.addCleanup(lambda: _SESSIONS.pop("cad-first", None))
         self.addCleanup(lambda: _SESSIONS.pop("cad-second", None))
-        with self.assertRaisesRegex(HTTPException, "exactly one"):
+        with self.assertRaisesRegex(HTTPException, "at least one"):
             export_cad_review(CadReviewPackageOptions(session_id="cad-first", panel_numbers=[]))
         one = export_cad_review(CadReviewPackageOptions(
             session_id="cad-first", panel_numbers=[4], profile_names=["profile-a"]))
@@ -169,7 +176,8 @@ class CadReviewExportTests(unittest.TestCase):
 
         with zipfile.ZipFile(target) as archive:
             self.assertEqual(set(archive.namelist()), {
-                "CAD_Review_Panel_27.dxf", "CAD_Review_Panel_27.png", "CAD_Review_Panel_27.pgw"})
+                "CAD_Review_Panel_27.dxf", "CAD_Review_Panel_27.png", "CAD_Review_Panel_27.pgw",
+                CAD_REVIEW_MANIFEST})
             dxf_data = archive.read("CAD_Review_Panel_27.dxf")
             png_data = archive.read("CAD_Review_Panel_27.png")
             world_data = archive.read("CAD_Review_Panel_27.pgw")
@@ -246,14 +254,15 @@ class CadReviewExportTests(unittest.TestCase):
             self.assertTrue(nearby_matches(50., 100., lambda rgb: max(rgb) < 180))
             self.assertTrue(nearby_matches(40., 94.5, lambda rgb: 190 < min(rgb) < 245))
 
-    def test_revision_clips_shared_grid_and_preserves_three_member_package(self):
+    def test_revision_clips_shared_grid_and_preserves_aligned_panel_set(self):
         db = sample_db()
         panel = db.panels[0]
         target = Path(self.temp.name) / "clipped.zip"
         result = export_cad_review_package(target, db, db.profiles, panel, (10., 20.))
         with zipfile.ZipFile(target) as archive:
             self.assertEqual(archive.namelist(), [
-                "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw"])
+                "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw",
+                CAD_REVIEW_MANIFEST])
             archive.extract("CAD_Review_Panel_4.dxf", self.temp.name)
         doc = ezdxf.readfile(Path(self.temp.name) / "CAD_Review_Panel_4.dxf")
         grid_polylines = list(doc.modelspace().query('POLYLINE[layer=="GRID_MAJOR"]'))
@@ -264,7 +273,94 @@ class CadReviewExportTests(unittest.TestCase):
                 self.assertTrue(90. - 1e-9 <= vertex.dxf.location.y <= 110. + 1e-9)
         self.assertEqual((result["bounds"].x_min, result["bounds"].x_max), (10., 20.))
         self.assertEqual(result["files"], [
-            "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw"])
+            "CAD_Review_Panel_4.dxf", "CAD_Review_Panel_4.png", "CAD_Review_Panel_4.pgw",
+            CAD_REVIEW_MANIFEST])
+
+    def test_two_and_ten_panel_packages_have_stable_sets_and_manifest(self):
+        for count in (2, 10):
+            db = sample_db()
+            panels = [PanelDef(number, 0., 100., 90., 110., h_scale=100., v_scale=5.,
+                               panel_suffix="P" if number == 2 else "")
+                      for number in range(1, count + 1)]
+            db.panels = panels
+            target = Path(self.temp.name) / f"package-{count}.zip"
+            result = export_cad_review_package(
+                target, db, db.profiles, panels, (0., 100.))
+            self.assertEqual(result["panel_count"], count)
+            with zipfile.ZipFile(target) as archive:
+                self.assertIsNone(archive.testzip())
+                expected = {CAD_REVIEW_MANIFEST}
+                for number in range(1, count + 1):
+                    expected.update(f"CAD_Review_Panel_{number}.{suffix}"
+                                    for suffix in ("dxf", "png", "pgw"))
+                self.assertEqual(set(archive.namelist()), expected)
+                manifest = json.loads(archive.read(CAD_REVIEW_MANIFEST))
+                self.assertEqual(manifest["schema"], "rasplot-cad-review-package-v1")
+                self.assertEqual(len(manifest["panels"]), count)
+                self.assertEqual(manifest["coordinate_contract"]["crs"],
+                                 {"status": "UNKNOWN_NOT_DECLARED", "name": None})
+                self.assertEqual(manifest["datum"]["label"], "UNKNOWN")
+                for item in manifest["panels"]:
+                    png_name, pgw_name = item["files"]["png"], item["files"]["pgw"]
+                    png_path = Path(self.temp.name) / f"{count}-{png_name}"
+                    png_path.write_bytes(archive.read(png_name))
+                    with Image.open(png_path) as image:
+                        self.assertEqual(list(image.size), [item["raster"]["width_px"],
+                                                           item["raster"]["height_px"]])
+                    world = [float(value) for value in archive.read(pgw_name).decode().splitlines()]
+                    self.assertEqual(world, item["world_file_affine"])
+
+    def test_selected_subset_excludes_other_saved_panels(self):
+        db = sample_db()
+        db.panels = [PanelDef(number, 0., 100., 90., 110., h_scale=100., v_scale=5.)
+                     for number in (4, 7, 9)]
+        _SESSIONS["cad-subset"] = {"db": db}
+        self.addCleanup(lambda: _SESSIONS.pop("cad-subset", None))
+        result = export_cad_review(CadReviewPackageOptions(
+            session_id="cad-subset", panel_numbers=[4, 9], profile_names=["profile-a"]))
+        self.assertEqual(result["panel_count"], 2)
+        with zipfile.ZipFile(result["path"]) as archive:
+            names = set(archive.namelist())
+            self.assertIn("CAD_Review_Panel_4.dxf", names)
+            self.assertIn("CAD_Review_Panel_9.dxf", names)
+            self.assertFalse(any("Panel_7" in name for name in names))
+
+    def test_cancellation_does_not_finalize_partial_package(self):
+        db = sample_db()
+        _SESSIONS["cad-cancel"] = {"db": db}
+        self.addCleanup(lambda: _SESSIONS.pop("cad-cancel", None))
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls >= 4:
+                raise ExportCancelled("cancelled in test")
+        from backend.app.routers import report
+        before = set(Path(report._cache_dir("cad-cancel")).glob("*"))
+        with self.assertRaises(ExportCancelled):
+            report._export_cad_review_snapshot(CadReviewPackageOptions(
+                session_id="cad-cancel", panel_numbers=[4], profile_names=["profile-a"]),
+                db, cancel_check=cancel)
+        after = set(Path(report._cache_dir("cad-cancel")).glob("*"))
+        self.assertEqual(after, before)
+
+    def test_background_multipanel_job_finalizes_owned_zip(self):
+        db = sample_db()
+        db.panels = [PanelDef(number, 0., 100., 90., 110., h_scale=100., v_scale=5.)
+                     for number in (4, 5)]
+        _SESSIONS["cad-background"] = {"db": db}
+        self.addCleanup(lambda: _SESSIONS.pop("cad-background", None))
+        started = start_cad_review_export(CadReviewPackageOptions(
+            session_id="cad-background", panel_numbers=[4, 5],
+            profile_names=["profile-a"]))
+        for _ in range(500):
+            job = get_export_job("cad-background", started["job_id"])
+            if job.state in {"COMPLETED", "FAILED", "CANCELLED"}:
+                break
+            time.sleep(.01)
+        self.assertEqual(job.state, "COMPLETED", job.error)
+        self.assertEqual(job.result["panel_count"], 2)
+        self.assertTrue(owned_path("cad-background", job.result["path"]).is_file())
 
 
 if __name__ == "__main__":
